@@ -29,6 +29,8 @@ def load_audio_file(filename, format="16bit_pcm"):
 def train_audio(filename):
 	signal = load_audio_file(filename)
 
+	receptive_size = wavenet.input_receptive_size
+
 def main():
 	train_audio("./wav/kamiya_0.wav")
 
