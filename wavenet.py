@@ -111,8 +111,104 @@ class GradientClipping(object):
 				with cuda.get_device(grad):
 					grad *= rate
 
+class Padding1d(function.Function):
+	def __init__(self, pad=0):
+		self.pad = pad
+
+	def check_type_forward(self, in_types):
+		n_in = in_types.size()
+		type_check.expect(n_in == 1)
+		x_type = in_types
+
+		type_check.expect(
+			x_type.dtype == np.float32,
+			x_type.ndim == 4,
+		)
+
+	def forward(self, inputs):
+		xp = cuda.get_array_module(inputs[0])
+		x = inputs
+		n_batch = x.shape[0]
+		in_channels = x.shape[1]
+		height = x.shape[2]
+		width = x.shape[3]
+		paded_width = width + self.pad
+		out_shape = (n_batch, in_channels, height, paded_width)
+		output = xp.zeros(out_shape, dtype=xp.float32)
+		output[:,:,:,:paded_width] = x
+		return output,
+
+	def backward(self, inputs, grad_outputs):
+		x = inputs
+		return grad_outputs[0][:,:,:,:x.shape[4]]
+
+class Slice1d(function.Function):
+	def __init__(self, cut=0):
+		self.cut = cut
+
+	def check_type_forward(self, in_types):
+		n_in = in_types.size()
+		type_check.expect(n_in == 1)
+		x_type = in_types
+
+		type_check.expect(
+			x_type.dtype == np.float32,
+			x_type.ndim == 4,
+		)
+
+	def forward(self, inputs):
+		xp = cuda.get_array_module(inputs[0])
+		x = inputs
+		width = x.shape[3]
+		cut_width = width - self.cut
+		output = output[:,:,:,:cut_width]
+		return output,
+
+	def backward(self, inputs, grad_outputs):
+		xp = cuda.get_array_module(inputs[0])
+		return xp.append(grad_outputs[0], xp.zeros((self.cut,), dtype=xp.float32), axis=3)
+
+class DilatedConvolution1D(L.Convolution2D):
+
+	def padding_1d(self, x, pad):
+		return Padding1d(pad=pad)(x)
+
+	def slice_1d(self, x, pad):
+		return Slice1d(pad=pad)(x)
+
+	def __call__(self, x, dilation=1):
+		if self.has_uninitialized_params:
+			self._initialize_params(x.shape[1])
+		kernel_width = self.ksize[0]
+
+		batchsize = x.shape[0]
+		input_x_channel = x.shape[1]
+		input_x_height = x.shape[2]
+		input_x_width = x.shape[3]
+
+		# padding
+		# # of elements in padded x >= input_x_width + dilation * (kernel_width - 1) 
+		pad = input_x_width + dilation * (self.kernel_width - 1)
+		padded_x_width = input_x_width + pad
+		# we need more padding to perform convlution
+		if padded_x_width < kernel_width * dilation:
+			pad += kernel_width * dilation - padded_x_width
+			padded_x_width = input_x_width + pad
+		pad += padded_x_width % dilation
+		padded_x = self.padding_1d(x, pad)
+
+		# reshape to skip (dilation - 1) elements
+		padded_x = F.reshape(batchsize * self.dilation, input_x_channel, 1, -1)
+
+		# Remove padded elements
+		cut = padded_x.shape[3] - input_x_width
+		out = self.slice_1d(padded_x, cut)
+
+		return convolution_2d.convolution_2d(
+			x, self.W, self.b, self.stride, self.pad, self.use_cudnn)
+
 class ResidualConvLayer(chainer.Chain):
-	def __init__(self, **layers):
+					def __init__(self, **layers):
 		super(ResidualConvLayer, self).__init__(**layers)
 		self.apply_batchnorm = False
 		self.batchnorm_before_conv = True
@@ -123,17 +219,24 @@ class ResidualConvLayer(chainer.Chain):
 	def xp(self):
 		return np if self._cpu else cuda.cupy
 
-	def __call__(self, x, test=False, apply_f=True):
-		if self.apply_batchnorm:
-			x = self.batchnorm(x)
-		# padding
+	def __call__(self, x, test=False):
+		# batchnorm
+		if self.batchnorm_before_conv and self.apply_batchnorm:
+			x = self.batchnorm(x, test=test)
+
 		# gated activation
-		z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
+		if self.batchnorm_before_conv == False and self.apply_batchnorm:
+			z = F.tanh(self.batchnorm_f(self.wf(x, dilation=self.dilation)), test=test) * F.sigmoid(self.batchnorm_g(self.wg(x, dilation=self.dilation), test=test))
+		else:
+			z = F.tanh(self.wf(x, dilation=self.dilation)) * F.sigmoid(self.wg(x, dilation=self.dilation))
+
 		print x.data.shape
 		print z.data.shape
+
 		# 1x1 conv
 		z = self.projection(z)
 		print z.data.shape
+
 		# residual
 		output = z + x
 		return output, z
@@ -154,16 +257,22 @@ class WaveNet():
 		for i, (n_in, n_out) in enumerate(channels):
 			shape_w = (n_out, n_in, ksize[0], ksize[1])
 			initial_w = np.random.normal(scale=math.sqrt(2.0 / (ksize[0] * ksize[0] * n_out)), size=shape_w)
+			initial_w = np.ones(shape_w).astype(np.float32)
 			attributes = {}
 			dilation = params.residual_conv_dilations[i]
 			attributes["wf"] = L.Convolution2D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
 			attributes["wg"] = L.Convolution2D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
 			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
-			attributes["batchnorm"] = L.BatchNormalization(n_in)
+			if param.residual_conv_batchnorm_before_conv:
+				attributes["batchnorm"] = L.BatchNormalization(n_in)
+			else:
+				attributes["batchnorm_g"] = L.BatchNormalization(n_out)
+				attributes["batchnorm_f"] = L.BatchNormalization(n_out)
 			conv_layer = ResidualConvLayer(**attributes)
 			conv_layer.apply_batchnorm = params.residual_conv_apply_batchnorm
 			conv_layer.batchnorm_before_conv = params.residual_conv_batchnorm_before_conv
 			conv_layer.dilation = dilation
+			conv_layer.kernel_width = ksize[0]
 			self.residual_conv_layers.append(conv_layer)
 
 	@property
