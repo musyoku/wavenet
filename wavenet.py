@@ -118,7 +118,7 @@ class Padding1d(function.Function):
 	def check_type_forward(self, in_types):
 		n_in = in_types.size()
 		type_check.expect(n_in == 1)
-		x_type = in_types
+		x_type, = in_types
 
 		type_check.expect(
 			x_type.dtype == np.float32,
@@ -127,7 +127,7 @@ class Padding1d(function.Function):
 
 	def forward(self, inputs):
 		xp = cuda.get_array_module(inputs[0])
-		x = inputs
+		x, = inputs
 		n_batch = x.shape[0]
 		in_channels = x.shape[1]
 		height = x.shape[2]
@@ -135,12 +135,11 @@ class Padding1d(function.Function):
 		paded_width = width + self.pad
 		out_shape = (n_batch, in_channels, height, paded_width)
 		output = xp.zeros(out_shape, dtype=xp.float32)
-		output[:,:,:,:paded_width] = x
+		output[:,:,:,self.pad:] = x
 		return output,
 
 	def backward(self, inputs, grad_outputs):
-		x = inputs
-		return grad_outputs[0][:,:,:,:x.shape[4]]
+		return grad_outputs[0][:,:,:,self.pad:],
 
 class Slice1d(function.Function):
 	def __init__(self, cut=0):
@@ -149,7 +148,7 @@ class Slice1d(function.Function):
 	def check_type_forward(self, in_types):
 		n_in = in_types.size()
 		type_check.expect(n_in == 1)
-		x_type = in_types
+		x_type, = in_types
 
 		type_check.expect(
 			x_type.dtype == np.float32,
@@ -158,7 +157,7 @@ class Slice1d(function.Function):
 
 	def forward(self, inputs):
 		xp = cuda.get_array_module(inputs[0])
-		x = inputs
+		x, = inputs
 		width = x.shape[3]
 		cut_width = width - self.cut
 		output = output[:,:,:,:cut_width]
@@ -183,7 +182,6 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		batchsize = x.shape[0]
 		input_x_channel = x.shape[1]
-		input_x_height = x.shape[2]
 		input_x_width = x.shape[3]
 
 		# padding
@@ -200,20 +198,21 @@ class DilatedConvolution1D(L.Convolution2D):
 		# reshape to skip (dilation - 1) elements
 		padded_x = F.reshape(batchsize * self.dilation, input_x_channel, 1, -1)
 
+		# convolution
+		out = F.convolution_2d(x, self.W, self.b, self.stride, self.pad, self.use_cudnn)
+
 		# Remove padded elements
 		cut = padded_x.shape[3] - input_x_width
 		out = self.slice_1d(padded_x, cut)
 
-		return convolution_2d.convolution_2d(
-			x, self.W, self.b, self.stride, self.pad, self.use_cudnn)
+		return out
 
 class ResidualConvLayer(chainer.Chain):
-					def __init__(self, **layers):
+	def __init__(self, **layers):
 		super(ResidualConvLayer, self).__init__(**layers)
 		self.apply_batchnorm = False
 		self.batchnorm_before_conv = True
 		self.dilation = 1
-		self.test = False
 
 	@property
 	def xp(self):
@@ -260,8 +259,8 @@ class WaveNet():
 			initial_w = np.ones(shape_w).astype(np.float32)
 			attributes = {}
 			dilation = params.residual_conv_dilations[i]
-			attributes["wf"] = L.Convolution2D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
-			attributes["wg"] = L.Convolution2D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			attributes["wf"] = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			attributes["wg"] = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
 			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
 			if param.residual_conv_batchnorm_before_conv:
 				attributes["batchnorm"] = L.BatchNormalization(n_in)
