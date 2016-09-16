@@ -212,6 +212,8 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		# to skip (dilation - 1) elements
 		padded_x = F.reshape(padded_x, (batchsize, input_x_channel, -1, self.dilation))
+		# we can remove transpose operation when residual_conv_kernel_size is set to kernel's height
+		# padded_x = F.transpose(padded_x, (0, 1, 3, 2))
 		print "padded_x(reshaped):"
 		print padded_x.data
 
