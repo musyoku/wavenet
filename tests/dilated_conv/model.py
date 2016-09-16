@@ -18,14 +18,15 @@ else:
 	params = Params()
 	params.gpu_enabled = True if args.gpu_enabled == 1 else False
 	params.audio_channels = 3
-	params.residual_conv_kernel_size = 2
+	params.residual_conv_kernel_width = 2
 	params.residual_conv_channels = [3]
-	params.skip_connections_conv_channels = [3]
-	params.causal_conv_channels = [3]
-	params.residual_conv_dilations = [4]
+	params.softmax_conv_channels = [3]
+	params.causal_conv_channels = [3, 3, 3]
+	params.residual_conv_dilations = [2]
 	params.causal_conv_apply_batchnorm = False
 	params.residual_conv_apply_batchnorm = False
-	params.skip_connections_conv_apply_batchnorm = False
+	params.softmax_conv_apply_batchnorm = False
+	params.audio_receptive_field_width = 5
 
 	wavenet = WaveNet(params)
 	f = open(filename, "w")
