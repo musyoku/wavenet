@@ -436,47 +436,47 @@ class WaveNet():
 		
 		self.causal_conv_optimizers = []
 		for layer in self.causal_conv_layers:
-			optimizer = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-			optimizer.setup(layer)
-			optimizer.add_hook(optimizer.WeightDecay(params.weight_decay))
-			optimizer.add_hook(GradientClipping(params.gradient_clipping))
-			self.causal_conv_optimizers.append(optimizer)
+			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			opt.setup(layer)
+			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
+			opt.add_hook(GradientClipping(params.gradient_clipping))
+			self.causal_conv_optimizers.append(opt)
 		
 		self.residual_conv_optimizers = []
 		for layer in self.residual_conv_layers:
-			optimizer = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-			optimizer.setup(layer)
-			optimizer.add_hook(optimizer.WeightDecay(params.weight_decay))
-			optimizer.add_hook(GradientClipping(params.gradient_clipping))
-			self.residual_conv_optimizers.append(optimizer)
+			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			opt.setup(layer)
+			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
+			opt.add_hook(GradientClipping(params.gradient_clipping))
+			self.residual_conv_optimizers.append(opt)
 		
 		self.softmax_conv_optimizers = []
 		for layer in self.softmax_conv_layers:
-			optimizer = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-			optimizer.setup(layer)
-			optimizer.add_hook(optimizer.WeightDecay(params.weight_decay))
-			optimizer.add_hook(GradientClipping(params.gradient_clipping))
-			self.softmax_conv_optimizers.append(optimizer)
+			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			opt.setup(layer)
+			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
+			opt.add_hook(GradientClipping(params.gradient_clipping))
+			self.softmax_conv_optimizers.append(opt)
 
 	def zero_grads(self):
-		for optimizer in self.causal_conv_optimizers:
-			optimizer.zero_grads()
+		for opt in self.causal_conv_optimizers:
+			opt.zero_grads()
 
-		for optimizer in self.residual_conv_layers:
-			optimizer.zero_grads()
+		for opt in self.residual_conv_layers:
+			opt.zero_grads()
 			
-		for optimizer in self.softmax_conv_optimizers:
-			optimizer.zero_grads()
+		for opt in self.softmax_conv_optimizers:
+			opt.zero_grads()
 
 	def update(self):
-		for optimizer in self.causal_conv_optimizers:
-			optimizer.update()
+		for opt in self.causal_conv_optimizers:
+			opt.update()
 
-		for optimizer in self.residual_conv_layers:
-			optimizer.update()
+		for opt in self.residual_conv_layers:
+			opt.update()
 			
-		for optimizer in self.softmax_conv_optimizers:
-			optimizer.update()
+		for opt in self.softmax_conv_optimizers:
+			opt.update()
 
 	@property
 	def gpu_enabled(self):
