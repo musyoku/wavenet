@@ -499,7 +499,37 @@ class WaveNet():
 		self.update()
 
 	def save(self, dir="./"):
-		pass
+		try:
+			os.mkdir(dir)
+		except:
+			pass
+		for i, layer in enumerate(self.causal_conv_layers):
+			filename = dir + "/causal_conv_layer_{}.hdf5".format(i)
+			serializers.save_hdf5(filename, layer)
+
+		for i, layer in enumerate(self.residual_conv_layers):
+			filename = dir + "/residual_conv_layer_{}.hdf5".format(i)
+			serializers.save_hdf5(filename, layer)
+
+		for i, layer in enumerate(self.softmax_conv_layers):
+			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)
+			serializers.save_hdf5(filename, layer)
+			
 
 	def load(self, dir="./"):
-		pass
+		def load_hdf5(filename, layer):
+			if os.path.isfile(filename):
+				print "loading",  filename
+				serializers.load_hdf5(filename, layer)
+			
+		for i, layer in enumerate(self.causal_conv_layers):
+			filename = dir + "/causal_conv_layer_{}.hdf5".format(i)
+			load_hdf5(filename, layer)
+			
+		for i, layer in enumerate(self.residual_conv_layers):
+			filename = dir + "/residual_conv_layer_{}.hdf5".format(i)
+			load_hdf5(filename, layer)
+			
+		for i, layer in enumerate(self.softmax_conv_layers):
+			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)
+			load_hdf5(filename, layer)

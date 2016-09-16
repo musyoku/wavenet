@@ -14,12 +14,7 @@ def create_signal_batch(signal, batch_size, pos, shift, receptive_width, padded_
 	target_batch = y.reshape((batch_size, -1))[:,(padded_width - receptive_width):]
 	return input_batch, target_batch
 
-def train_audio(
-		filename, 
-		receptive_field_width_ms=25,
-		batch_size=50,
-		updates_per_epoch=50,
-	):
+def generate_audio(receptive_field_width_ms=25):
 	# e.g.
 	# 48000 Hz * 0.25 = 12000 time steps (= 250 milliseconds receptive field)
 	quantized_signal, sampling_rate = data.load_audio_file(filename, channels=params.audio_channels)
@@ -61,8 +56,7 @@ def train_audio(
 	wavenet.save(dir=args.model_dir)
 
 def main():
-	receptive_field_milliseconds = 250
-	train_audio("./wav_test/voice.wav")
+	generate_audio()
 
 if __name__ == '__main__':
 	main()
