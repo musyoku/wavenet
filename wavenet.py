@@ -23,7 +23,7 @@ class Params():
 		# entire architecture
 		# causal conv stack -> residual dilated conv stack -> skip-connections conv -> softmax
 
-		self.causal_conv_no_bias = True
+		self.causal_conv_no_bias = False
 		# Note: kernel_height is fixed to 1
 		self.causal_conv_kernel_width = 2
 		# [<- input   output ->]
@@ -31,8 +31,8 @@ class Params():
 		# to stack more layers, [128, 128, 128, ...]
 		self.causal_conv_channels = [128]
 
-		self.residual_conv_dilation_no_bias = True
-		self.residual_conv_projection_no_bias = True
+		self.residual_conv_dilation_no_bias = False
+		self.residual_conv_projection_no_bias = False
 		# Note: kernel_height is fixed to 1
 		self.residual_conv_kernel_width = 2
 		# [<- input   output ->]
@@ -471,27 +471,20 @@ class WaveNet():
 	def loss(self, padded_input_batch_data, target_signal_batch_data):
 		batchsize = padded_input_batch_data.shape[0]
 		width = target_signal_batch_data.shape[1]
-		raw_output = self.forward_one_step(padded_input_batch_data, softmax=True)
-		print "prob:"
-		print raw_output.data
+
 		raw_output = self.forward_one_step(padded_input_batch_data, softmax=False)
-		print "raw:"
-		print raw_output.data.shape
-		print target_signal_batch_data
+
+		# remove padding
 		cut = padded_input_batch_data.shape[3] - width
 		if cut > 0:
 			raw_output = CausalSlice1d(cut)(raw_output)
-		print raw_output.data
 
 		# (batchsize * time_step,) <- (batchsize, time_step)
 		target_signal_batch_data = target_signal_batch_data.reshape((-1,))
-		print target_signal_batch_data
 
-		# (batchsize, channels, 1, time_step)
+		# (batchsize * time_step, channels) <- (batchsize, channels, 1, time_step)
 		raw_output = F.transpose(raw_output, (0, 3, 2, 1))
-		print raw_output.data
 		raw_output = F.reshape(raw_output, (batchsize * width, -1))
-		print raw_output.data
 
 		target_id_batch = Variable(target_signal_batch_data)
 		if self.gpu_enabled:

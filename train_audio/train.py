@@ -49,7 +49,7 @@ def train_audio(
 
 def main():
 	receptive_field_milliseconds = 250
-	train_audio("./wav/kamiya_0.wav")
+	train_audio("./wav_test/voice.wav")
 
 if __name__ == '__main__':
 	main()
