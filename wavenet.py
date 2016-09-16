@@ -482,8 +482,8 @@ class WaveNet():
 	def gpu_enabled(self):
 		return self.params.gpu_enabled
 
-	def forward_one_step(self, x_batch_data, test=False, softmax=True):
-		x_batch = Variable(x_batch_data)
+	def forward_one_step(self, padded_x_batch_data, test=False, softmax=True):
+		x_batch = Variable(padded_x_batch_data)
 		causal_output = self.forward_causal_block(x_batch, test=test)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output, test=test)
 		softmax_output = self.forward_softmax_block(residual_output, test=test, softmax=softmax)
@@ -515,11 +515,16 @@ class WaveNet():
 			output = F.softmax(output)
 		return output
 
-	def loss(self, x_batch_data, target_id_batch_data):
-		raw_output = self.forward_one_step(x_batch_data, test=False, softmax=False)
+	def loss(self, padded_x_batch_data, target_id_batch_data):
+		raw_output = self.forward_one_step(padded_x_batch_data, test=False, softmax=False)
+		cut = padded_x_batch_data.shape[1] - target_id_batch_data.shape[1]
+		if cut > 0:
+			raw_output = CausalSlice1d(cut)(raw_output)
+
 		target_id_batch = Variable(target_id_batch_data)
 		if self.gpu_enabled:
 			target_id_batch.to_gpu()
+
 		loss = F.sum(F.softmax_cross_entropy(raw_output, target_id_batch))
 		return loss
 
