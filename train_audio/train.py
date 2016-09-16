@@ -16,8 +16,8 @@ def create_signal_batch(signal, batch_size, pos, shift, receptive_width, padded_
 
 def train_audio(
 		filename, 
-		receptive_field_width_ms=25,
-		batch_size=50,
+		receptive_field_width_ms=200,
+		batch_size=2,
 		updates_per_epoch=50,
 	):
 	# e.g.

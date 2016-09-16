@@ -25,15 +25,15 @@ else:
 	params.residual_conv_dilation_no_bias = False
 	params.residual_conv_projection_no_bias = False
 	params.residual_conv_kernel_width = 2
-	params.residual_conv_channels = [32, 32, 32, 32]
-	params.residual_conv_dilations = [1, 2, 4, 8]
+	params.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
+	params.residual_conv_dilations = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
 
 	params.softmax_conv_no_bias = False
 	params.softmax_wscale = 0.01
 	params.softmax_conv_kernel_width = 2
 	params.softmax_conv_channels = [128, 256]
 
-	params.learning_rate = 0.001
+	params.learning_rate = 0.01
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0

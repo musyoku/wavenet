@@ -431,13 +431,17 @@ class WaveNet():
 	def gpu_enabled(self):
 		return self.params.gpu_enabled
 
-	def forward_one_step(self, padded_x_batch_data, softmax=True):
+	def forward_one_step(self, padded_x_batch_data, softmax=True, return_numpy=False):
 		x_batch = Variable(padded_x_batch_data)
 		if self.gpu_enabled:
 			x_batch.to_gpu()
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
 		softmax_output = self.forward_softmax_block(residual_output, softmax=softmax)
+		if return_numpy:
+			if self.gpu_enabled:
+				softmax_output.to_cpu()
+			return softmax_output.data
 		return softmax_output
 
 	def forward_causal_block(self, x_batch):
