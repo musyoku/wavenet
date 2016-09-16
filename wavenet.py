@@ -26,8 +26,6 @@ class Params():
 		self.causal_conv_no_bias = True
 		# Note: kernel_height is fixed to 1
 		self.causal_conv_kernel_width = 2
-		self.causal_conv_apply_batchnorm = True
-		self.causal_conv_batchnorm_before_conv = True
 		# [<- input   output ->]
 		# audio input -> conv -> (128,) -> residual dilated conv stack
 		# to stack more layers, [128, 128, 128, ...]
@@ -37,8 +35,6 @@ class Params():
 		self.residual_conv_projection_no_bias = True
 		# Note: kernel_height is fixed to 1
 		self.residual_conv_kernel_width = 2
-		self.residual_conv_apply_batchnorm = True
-		self.residual_conv_batchnorm_before_conv = True
 		# [<- input   output ->]
 		# causal conv output (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> ...
 		self.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32]
@@ -49,8 +45,6 @@ class Params():
 		# Note: kernel_height is fixed to 1
 		self.softmax_wscale = 0.01
 		self.softmax_conv_kernel_width = 2
-		self.softmax_conv_apply_batchnorm = True
-		self.softmax_conv_batchnorm_before_conv = True
 		# [<- input   output ->]
 		# skip-connections -> ReLU -> conv -> (128,) -> ReLU -> conv -> (256,) -> softmax -> prediction
 		self.softmax_conv_channels = [128, 256]
@@ -184,6 +178,13 @@ class CausalSlice1d(function.Function):
 
 class DilatedConvolution1D(L.Convolution2D):
 
+	def __init__(self, in_channels, out_channels, ksize, kernel_width=2, dilation=1, stride=1, nobias=False, initialW=None):
+		self.kernel_width = kernel_width
+		self.in_channels = in_channels
+		self.out_channels = out_channels
+		self.dilation = dilation
+		super(DilatedConvolution1D, self).__init__(in_channels, out_channels, ksize=ksize, stride=stride, initialW=initialW, nobias=nobias)
+
 	def padding_1d(self, x, pad):
 		return CausalPadding1d(pad)(x)
 
@@ -192,7 +193,6 @@ class DilatedConvolution1D(L.Convolution2D):
 
 	def __call__(self, x):
 		batchsize = x.data.shape[0]
-		input_x_channel = x.data.shape[1]
 		input_x_width = x.data.shape[3]
 
 		if self.dilation == 1:
@@ -206,7 +206,7 @@ class DilatedConvolution1D(L.Convolution2D):
 			return out
 
 		# print "dilated-conv:"
-		# print "	", input_x_channel
+		# print "	", self.in_channels
 		# print "	", input_x_width
 		# print "	", self.dilation
 
@@ -230,7 +230,7 @@ class DilatedConvolution1D(L.Convolution2D):
 		# print padded_x.data
 
 		# to skip (dilation - 1) elements
-		padded_x = F.reshape(padded_x, (batchsize, input_x_channel, -1, self.dilation))
+		padded_x = F.reshape(padded_x, (batchsize, self.in_channels, -1, self.dilation))
 		# we can remove transpose operation when residual_conv_kernel_width is set to the kernel's height
 		# padded_x = F.transpose(padded_x, (0, 1, 3, 2))
 		# print "padded_x(reshaped):"
@@ -242,7 +242,7 @@ class DilatedConvolution1D(L.Convolution2D):
 		# print out.data
 
 		# reshape to the original shape
-		out = F.reshape(out, (batchsize, input_x_channel, 1, -1))
+		out = F.reshape(out, (batchsize, self.out_channels, 1, -1))
 		# print "out(reshaped):"
 		# print out.data
 
@@ -257,50 +257,18 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		return out
 
-class CausalConvLayer(chainer.Chain):
-	def __init__(self, **layers):
-		super(CausalConvLayer, self).__init__(**layers)
-		self.apply_batchnorm = False
-		self.batchnorm_before_conv = True
-
-	@property
-	def xp(self):
-		return np if self._cpu else cuda.cupy
-
-	def __call__(self, x, test=False):
-		# batchnorm
-		if self.batchnorm_before_conv and self.apply_batchnorm:
-			x = self.batchnorm(x, test=test)
-
-		# gated activation
-		if self.batchnorm_before_conv == False and self.apply_batchnorm:
-			output = self.batchnorm_f(self.conv(x), test=test)
-		else:
-			output = self.conv(x)
-
-		return output
-
 class ResidualConvLayer(chainer.Chain):
 	def __init__(self, **layers):
 		super(ResidualConvLayer, self).__init__(**layers)
-		self.apply_batchnorm = False
-		self.batchnorm_before_conv = True
 		self.dilation = 1
 
 	@property
 	def xp(self):
 		return np if self._cpu else cuda.cupy
 
-	def __call__(self, x, test=False):
-		# batchnorm
-		if self.batchnorm_before_conv and self.apply_batchnorm:
-			x = self.batchnorm(x, test=test)
-
+	def __call__(self, x):
 		# gated activation
-		if self.batchnorm_before_conv == False and self.apply_batchnorm:
-			z = F.tanh(self.batchnorm_f(self.wf(x)), test=test) * F.sigmoid(self.batchnorm_g(self.wg(x), test=test))
-		else:
-			z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
+		z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
 
 		# 1x1 conv
 		z = self.projection(z)
@@ -319,6 +287,7 @@ class WaveNet():
 
 	def create_network(self):
 		params = self.params
+
 		# stack causal blocks
 		self.causal_conv_layers = []
 		nobias = params.causal_conv_no_bias
@@ -332,30 +301,21 @@ class WaveNet():
 			attributes = {}
 			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=(n_out, n_in, 1, kernel_width))
 
-			conv_layer = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias, initialW=initial_w)
-			conv_layer.kernel_width = kernel_width
-			conv_layer.dilation = 1
-			attributes["conv"] = conv_layer 
-			if params.causal_conv_batchnorm_before_conv:
-				attributes["batchnorm"] = L.BatchNormalization(n_in)
-			else:
-				attributes["batchnorm"] = L.BatchNormalization(n_in)
-
-			causal_layer = CausalConvLayer(**attributes)
-			causal_layer.apply_batchnorm = params.causal_conv_apply_batchnorm
-			causal_layer.batchnorm_before_conv = params.causal_conv_batchnorm_before_conv
-			self.causal_conv_layers.append(causal_layer)
+			layer = DilatedConvolution1D(n_in, n_out, ksize, 
+				kernel_width=kernel_width, 
+				dilation=1, 
+				stride=1, nobias=nobias, initialW=initial_w)
+			self.causal_conv_layers.append(layer)
 
 		# stack residual blocks
 		self.residual_conv_layers = []
 		nobias_dilation = params.residual_conv_dilation_no_bias
 		nobias_projection = params.residual_conv_projection_no_bias
 		kernel_width = params.residual_conv_kernel_width
+		n_in = params.causal_conv_channels[-1]
 
-		channels = [(params.causal_conv_channels[-1], params.residual_conv_channels[0])]
-		channels += zip(params.residual_conv_channels[:-1], params.residual_conv_channels[1:])
-
-		for i, (n_in, n_out) in enumerate(channels):
+		for i in xrange(len(params.residual_conv_channels)):
+			n_out = params.residual_conv_channels[i]
 			dilation = params.residual_conv_dilations[i]
 			# kernel
 			if dilation == 1:
@@ -373,7 +333,10 @@ class WaveNet():
 			# initial_w = np.ones(shape_w).astype(np.float32)
 
 			# filter
-			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
+				kernel_width=kernel_width,
+				dilation=dilation,
+				stride=1, nobias=nobias_dilation, initialW=initial_w)
 			dilated_conv_layer.kernel_width = kernel_width
 			dilated_conv_layer.dilation = dilation
 			attributes["wf"] = dilated_conv_layer 
@@ -383,7 +346,10 @@ class WaveNet():
 			# initial_w = np.ones(shape_w).astype(np.float32)
 
 			# gate
-			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
+				kernel_width=kernel_width, 
+				dilation=dilation,
+				stride=1, nobias=nobias_dilation, initialW=initial_w)
 			dilated_conv_layer.dilation = dilation
 			dilated_conv_layer.kernel_width = kernel_width
 			attributes["wg"] = dilated_conv_layer
@@ -391,45 +357,21 @@ class WaveNet():
 			# projection
 			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
 
-			# batchnorm
-			if params.residual_conv_batchnorm_before_conv:
-				attributes["batchnorm"] = L.BatchNormalization(n_in)
-			else:
-				attributes["batchnorm_g"] = L.BatchNormalization(n_out)
-				attributes["batchnorm_f"] = L.BatchNormalization(n_out)
-
 			# residual conv block
 			residual_layer = ResidualConvLayer(**attributes)
-			residual_layer.apply_batchnorm = params.residual_conv_apply_batchnorm
-			residual_layer.batchnorm_before_conv = params.residual_conv_batchnorm_before_conv
 			self.residual_conv_layers.append(residual_layer)
 
 		# softmax block
 		self.softmax_conv_layers = []
 		nobias = params.softmax_conv_no_bias
-		kernel_width = params.softmax_conv_kernel_width
-		ksize = (1, kernel_width)
 
-		channels = [(params.residual_conv_channels[-1], params.softmax_conv_channels[0])]
+		channels = [(params.causal_conv_channels[-1], params.softmax_conv_channels[0])]
 		channels += zip(params.softmax_conv_channels[:-1], params.softmax_conv_channels[1:])
 
 		for i, (n_in, n_out) in enumerate(channels):
-			attributes = {}
-			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=(n_out, n_in, 1, kernel_width))
+			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=(n_out, n_in, 1, 1))
 
-			conv_layer = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias, initialW=initial_w)
-			conv_layer.kernel_width = kernel_width
-			conv_layer.dilation = 1
-			attributes["conv"] = conv_layer 
-			if params.softmax_conv_batchnorm_before_conv:
-				attributes["batchnorm"] = L.BatchNormalization(n_in)
-			else:
-				attributes["batchnorm"] = L.BatchNormalization(n_in)
-
-			softmax_conv_layer = CausalConvLayer(**attributes)
-			softmax_conv_layer.apply_batchnorm = params.causal_conv_apply_batchnorm
-			softmax_conv_layer.batchnorm_before_conv = params.causal_conv_batchnorm_before_conv
-			self.softmax_conv_layers.append(softmax_conv_layer)
+			self.softmax_conv_layers.append(L.Convolution2D(n_in, n_out, ksize=1, stride=1, nobias=nobias, initialW=initial_w))
 
 	def setup_optimizers(self):
 		params = self.params
@@ -482,24 +424,24 @@ class WaveNet():
 	def gpu_enabled(self):
 		return self.params.gpu_enabled
 
-	def forward_one_step(self, padded_x_batch_data, test=False, softmax=True):
+	def forward_one_step(self, padded_x_batch_data, softmax=True):
 		x_batch = Variable(padded_x_batch_data)
-		causal_output = self.forward_causal_block(x_batch, test=test)
-		residual_output, sum_skip_connections = self.forward_residual_block(causal_output, test=test)
-		softmax_output = self.forward_softmax_block(residual_output, test=test, softmax=softmax)
+		causal_output = self.forward_causal_block(x_batch)
+		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
+		softmax_output = self.forward_softmax_block(residual_output, softmax=softmax)
 		return softmax_output
 
-	def forward_causal_block(self, x_batch, test=False):
+	def forward_causal_block(self, x_batch):
 		for layer in self.causal_conv_layers:
-			output = layer(x_batch, test=test)
+			output = layer(x_batch)
 		return output
 
-	def forward_residual_block(self, x_batch, test=False):
+	def forward_residual_block(self, x_batch):
 		# print "x_batch:"
 		# print x_batch.data
 		sum_skip_connections = 0
 		for layer in self.residual_conv_layers:
-			output, z = layer(x_batch, test=test)
+			output, z = layer(x_batch)
 			sum_skip_connections += z
 			# print "output:"
 			# print "	", output.data
@@ -507,21 +449,27 @@ class WaveNet():
 			# print "	", z.data
 		return output, sum_skip_connections
 
-	def forward_softmax_block(self, x_batch, test=False, softmax=True):
+	def forward_softmax_block(self, x_batch, softmax=True):
 		batchsize = x_batch.data.shape[0]
 		for layer in self.softmax_conv_layers:
-			output = layer(x_batch, test=test)
+			output = layer(x_batch)
 		if softmax:
 			output = F.softmax(output)
 		return output
 
-	def loss(self, padded_x_batch_data, target_id_batch_data):
-		raw_output = self.forward_one_step(padded_x_batch_data, test=False, softmax=False)
-		cut = padded_x_batch_data.shape[1] - target_id_batch_data.shape[1]
+	# padded_input_batch_data: 			(batchsize, channels, 1, width)
+	# target_signal_batch_data.ndim:	(batchsize, width)
+	def loss(self, padded_input_batch_data, target_signal_batch_data):
+		raw_output = self.forward_one_step(padded_input_batch_data, softmax=False)
+		print raw_output.data.shape
+		print target_signal_batch_data.shape
+		cut = padded_input_batch_data.shape[3] - target_signal_batch_data.shape[1]
 		if cut > 0:
 			raw_output = CausalSlice1d(cut)(raw_output)
+		print raw_output.data
+		print raw_output.data.shape
 
-		target_id_batch = Variable(target_id_batch_data)
+		target_id_batch = Variable(target_signal_batch_data)
 		if self.gpu_enabled:
 			target_id_batch.to_gpu()
 

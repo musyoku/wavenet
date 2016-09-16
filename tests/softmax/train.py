@@ -33,6 +33,12 @@ def train_audio(
 	target_width = receptive_field_width_steps
 	padded_input_width = receptive_field_width_steps + max_dilation
 
+	target_width = 2
+	padded_input_width = 6
+
+	quantized_signal = np.ones((1, padded_input_width * batch_size * 4), dtype=np.float32)
+	print quantized_signal
+
 	for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
 		for shift in xrange(padded_input_width):
 			# check if we can create batch

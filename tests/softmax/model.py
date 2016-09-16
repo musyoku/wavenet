@@ -16,7 +16,7 @@ if os.path.isfile(filename):
 	wavenet = WaveNet(params)
 else:
 	params = Params()
-	params.audio_channels = 256
+	params.audio_channels = 3
 
 	params.causal_conv_no_bias = True
 	params.causal_conv_kernel_width = 2
@@ -31,7 +31,7 @@ else:
 	params.softmax_conv_no_bias = False
 	params.softmax_wscale = 0.01
 	params.softmax_conv_kernel_width = 2
-	params.softmax_conv_channels = [128, 256]
+	params.softmax_conv_channels = [128, 3]
 
 	params.learning_rate = 0.001
 	params.gradient_momentum = 0.9
