@@ -160,12 +160,15 @@ class Slice1d(function.Function):
 		x, = inputs
 		width = x.shape[3]
 		cut_width = width - self.cut
-		output = output[:,:,:,:cut_width]
+		output = x[:,:,:,cut_width + 1:]
 		return output,
 
 	def backward(self, inputs, grad_outputs):
 		xp = cuda.get_array_module(inputs[0])
-		return xp.append(grad_outputs[0], xp.zeros((self.cut,), dtype=xp.float32), axis=3)
+		x, = inputs
+		grad = xp.zeros(x.shape, dtype=xp.float32)
+		grad[:,:,:,self.cut:] = grad_outputs[0]
+		return grad,
 
 class DilatedConvolution1D(L.Convolution2D):
 
