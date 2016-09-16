@@ -40,8 +40,9 @@ def generate_audio(receptive_field_width_ms=25, sampling_rate=48000, generate_du
 
 	
 
+
 def main():
-	generate_audio()
+	generate_audio(generate_duration_sec=args.duration_seconds)
 
 if __name__ == '__main__':
 	main()

@@ -16,14 +16,15 @@ def create_signal_batch(signal, batch_size, pos, shift, receptive_width, padded_
 
 def train_audio(
 		filename, 
-		receptive_field_width_ms=200,
-		batch_size=2,
-		updates_per_epoch=50,
+		batch_size=4,
+		save_per_update=500,
+		repeat=100
 	):
 	# e.g.
 	# 48000 Hz * 0.25 = 12000 time steps (= 250 milliseconds receptive field)
 	quantized_signal, sampling_rate = data.load_audio_file(filename, channels=params.audio_channels)
-	receptive_field_width_steps = int(sampling_rate * receptive_field_width_ms / 1000.0)
+	receptive_field_width_steps = params.residual_conv_dilations[-1]
+	receptive_field_width_ms = int(receptive_field_width_steps * 1000.0 / sampling_rate)
 	print "training", filename	
 	print "	sampling rate:", sampling_rate, "[Hz]"
 	print "	receptive field width:", receptive_field_width_ms, "[millisecond]"
@@ -35,33 +36,40 @@ def train_audio(
 	padded_input_width = receptive_field_width_steps + max_dilation
 
 	num_updates = 0
+	total_updates = 0
 	sum_loss = 0
 
-	for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
-		for shift in xrange(padded_input_width):
-			# check if we can create batch
-			if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
-				# print pos, shift
-				padded_quantized_input_signal_batch, quantized_target_signal_batch = create_signal_batch(quantized_signal, batch_size, pos, shift, target_width, padded_input_width)
-				# print padded_quantized_input_signal_batch
-				# print quantized_target_signal_batch
-				# convert to 1xW image whose channel is equal to audio_channels
-				padded_x_batch = data.onehot_pixel_image(padded_quantized_input_signal_batch, channels=params.audio_channels)
-				loss = wavenet.loss(padded_x_batch, quantized_target_signal_batch)
-				wavenet.backprop(loss)
+	if padded_input_width * batch_size + 1 > quantized_signal.size:
+		raise Exception("batch_size too large")
 
-				# logging
-				sum_loss += float(loss.data)
-				num_updates += 1
-				if num_updates == updates_per_epoch:
-					print "loss: {:.6f}".format(sum_loss / float(updates_per_epoch))
-					num_updates = 0
-					sum_loss = 0
+	for rep in xrange(repeat):
+		for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
+			for shift in xrange(padded_input_width):
+				# check if we can create batch
+				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
+					# print pos, shift
+					padded_quantized_input_signal_batch, quantized_target_signal_batch = create_signal_batch(quantized_signal, batch_size, pos, shift, target_width, padded_input_width)
+					# print padded_quantized_input_signal_batch
+					# print quantized_target_signal_batch
+					# convert to 1xW image whose channel is equal to audio_channels
+					padded_x_batch = data.onehot_pixel_image(padded_quantized_input_signal_batch, channels=params.audio_channels)
+					loss = wavenet.loss(padded_x_batch, quantized_target_signal_batch)
+					wavenet.backprop(loss)
+
+					# logging
+					sum_loss += float(loss.data)
+					num_updates += 1
+					total_updates += 1
+					if num_updates == 50:
+						print "loss: {:.6f}".format(sum_loss / 50.0)
+						num_updates = 0
+						sum_loss = 0
+					if total_updates % save_per_update == 0:
+						wavenet.save(dir=args.model_dir)
 
 	wavenet.save(dir=args.model_dir)
 
 def main():
-	receptive_field_milliseconds = 250
 	train_audio("./wav_test/voice.wav")
 
 if __name__ == '__main__':

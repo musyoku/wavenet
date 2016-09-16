@@ -20,6 +20,10 @@ def load_audio_file(filename, channels=256, format="16bit_pcm"):
 	quantized_signal = (np.clip(signal * 0.5 + 0.5, 0, 1) * mu).astype(int)
 	return quantized_signal, sampling_rate
 
+def save_audio_file(filename, signals_1d, channels, format="16bit_pcm"):
+	signals_1d = signals_1d.reshape((-1, 1))
+	signals_1d = np.repeat(signals_1d, 1, axis=1)
+
 # convert signal to 1xW image
 def onehot_pixel_image(quantized_signal_batch, channels=256):
 	batchsize = quantized_signal_batch.shape[0]

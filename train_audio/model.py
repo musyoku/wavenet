@@ -25,8 +25,7 @@ else:
 	params.residual_conv_dilation_no_bias = False
 	params.residual_conv_projection_no_bias = False
 	params.residual_conv_kernel_width = 2
-	params.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
-	params.residual_conv_dilations = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+	params.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
 
 	params.softmax_conv_no_bias = False
 	params.softmax_wscale = 0.01

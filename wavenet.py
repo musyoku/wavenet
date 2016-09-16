@@ -38,8 +38,6 @@ class Params():
 		# [<- input   output ->]
 		# causal conv output (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> ...
 		self.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32]
-		# [<- input   output ->]
-		self.residual_conv_dilations = [1, 2, 4, 8, 2, 4, 8, 4, 8]
 
 		self.softmax_conv_no_bias = False
 		# Note: kernel_height is fixed to 1
@@ -60,9 +58,8 @@ class Params():
 
 	def from_dict(self, dict):
 		for attr, value in dict.iteritems():
-			if not hasattr(self, attr):
-				raise Exception("invalid parameter '{}'".format(attr))
-			setattr(self, attr, value)
+			if hasattr(self, attr):
+				setattr(self, attr, value)
 
 	def to_dict(self):
 		dict = {}
@@ -84,11 +81,12 @@ class Params():
 			raise Exception("causal_conv_channels[-1] != softmax_conv_channels[0]")
 		if self.audio_channels != self.softmax_conv_channels[-1]:
 			raise Exception("audio_channels != softmax_conv_channels[-1]")
-		if len(self.residual_conv_channels) != len(self.residual_conv_dilations):
-			raise Exception("len(residual_conv_channels) != len(residual_conv_dilations)")
-		for dilation in self.residual_conv_dilations:
-			if bin(dilation).count("1") != 1:
-				raise Exception("dilation must be 2 ** n")
+			
+		self.residual_conv_dilations = []
+		dilation = 1
+		for _ in self.residual_conv_channels:
+			self.residual_conv_dilations.append(dilation)
+			dilation *= 2
 
 def sum_sqnorm(arr):
 	sq_sum = collections.defaultdict(float)
