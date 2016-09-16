@@ -18,9 +18,6 @@ activations = {
 
 class Params():
 	def __init__(self, dict=None):
-		# e.g.
-		# 44100 KHz * 0.25 = 11025 time steps (= 0.25 milliseconds)
-		self.audio_receptive_field_width = int(44100 * 0.25)
 		self.audio_channels = 256
 
 		# entire architecture
@@ -60,6 +57,7 @@ class Params():
 
 		self.gpu_enabled = True
 		self.learning_rate = 0.001
+		self.weight_decay = 0.00001
 		self.gradient_momentum = 0.9
 		self.gradient_clipping = 10.0
 
@@ -316,7 +314,11 @@ class WaveNet():
 	def __init__(self, params):
 		params.check()
 		self.params = params
+		self.create_network()
+		self.setup_optimizers()
 
+	def create_network(self):
+		params = self.params
 		# stack causal blocks
 		self.causal_conv_layers = []
 		nobias = params.causal_conv_no_bias
@@ -429,7 +431,52 @@ class WaveNet():
 			softmax_conv_layer.batchnorm_before_conv = params.causal_conv_batchnorm_before_conv
 			self.softmax_conv_layers.append(softmax_conv_layer)
 
-		self.softmax_projection_layer = L.Linear(params.audio_receptive_field_width * params.audio_channels, params.audio_channels, wscale=params.softmax_wscale)
+	def setup_optimizers(self):
+		params = self.params
+		
+		self.causal_conv_optimizers = []
+		for layer in self.causal_conv_layers:
+			optimizer = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			optimizer.setup(layer)
+			optimizer.add_hook(optimizer.WeightDecay(params.weight_decay))
+			optimizer.add_hook(GradientClipping(params.gradient_clipping))
+			self.causal_conv_optimizers.append(optimizer)
+		
+		self.residual_conv_optimizers = []
+		for layer in self.residual_conv_layers:
+			optimizer = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			optimizer.setup(layer)
+			optimizer.add_hook(optimizer.WeightDecay(params.weight_decay))
+			optimizer.add_hook(GradientClipping(params.gradient_clipping))
+			self.residual_conv_optimizers.append(optimizer)
+		
+		self.softmax_conv_optimizers = []
+		for layer in self.softmax_conv_layers:
+			optimizer = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			optimizer.setup(layer)
+			optimizer.add_hook(optimizer.WeightDecay(params.weight_decay))
+			optimizer.add_hook(GradientClipping(params.gradient_clipping))
+			self.softmax_conv_optimizers.append(optimizer)
+
+	def zero_grads(self):
+		for optimizer in self.causal_conv_optimizers:
+			optimizer.zero_grads()
+
+		for optimizer in self.residual_conv_layers:
+			optimizer.zero_grads()
+			
+		for optimizer in self.softmax_conv_optimizers:
+			optimizer.zero_grads()
+
+	def update(self):
+		for optimizer in self.causal_conv_optimizers:
+			optimizer.update()
+
+		for optimizer in self.residual_conv_layers:
+			optimizer.update()
+			
+		for optimizer in self.softmax_conv_optimizers:
+			optimizer.update()
 
 	@property
 	def gpu_enabled(self):
@@ -437,11 +484,8 @@ class WaveNet():
 
 	def forward_one_step(self, x_batch_data, test=False, softmax=True):
 		x_batch = Variable(x_batch_data)
-		print x_batch_data
 		causal_output = self.forward_causal_block(x_batch, test=test)
-		print causal_output.data
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output, test=test)
-		print residual_output.data
 		softmax_output = self.forward_softmax_block(residual_output, test=test, softmax=softmax)
 		return softmax_output
 
@@ -467,16 +511,22 @@ class WaveNet():
 		batchsize = x_batch.data.shape[0]
 		for layer in self.softmax_conv_layers:
 			output = layer(x_batch, test=test)
-		print output.data
-		output = F.reshape(output, (batchsize, -1))
-		output = self.softmax_projection_layer(output)
-		print output.data
 		if softmax:
 			output = F.softmax(output)
 		return output
 
-	def loss(self, x_batch):
-		pass
+	def loss(self, x_batch_data, target_id_batch_data):
+		raw_output = self.forward_one_step(x_batch_data, test=False, softmax=False)
+		target_id_batch = Variable(target_id_batch_data)
+		if self.gpu_enabled:
+			target_id_batch.to_gpu()
+		loss = F.sum(F.softmax_cross_entropy(raw_output, target_id_batch))
+		return loss
+
+	def backprop(self, loss):
+		self.zero_grads()
+		loss.backward()
+		self.update()
 
 	def save(self, dir="./"):
 		pass

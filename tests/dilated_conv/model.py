@@ -26,7 +26,6 @@ else:
 	params.causal_conv_apply_batchnorm = False
 	params.residual_conv_apply_batchnorm = False
 	params.softmax_conv_apply_batchnorm = False
-	params.audio_receptive_field_width = 5
 
 	wavenet = WaveNet(params)
 	f = open(filename, "w")
