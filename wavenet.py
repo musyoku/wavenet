@@ -305,6 +305,8 @@ class WaveNet():
 				kernel_width=kernel_width, 
 				dilation=1, 
 				stride=1, nobias=nobias, initialW=initial_w)
+			if params.gpu_enabled:
+				layer.to_gpu()
 			self.causal_conv_layers.append(layer)
 
 		# stack residual blocks
@@ -359,6 +361,8 @@ class WaveNet():
 
 			# residual conv block
 			residual_layer = ResidualConvLayer(**attributes)
+			if params.gpu_enabled:
+				residual_layer.to_gpu()
 			self.residual_conv_layers.append(residual_layer)
 
 		# softmax block
@@ -371,7 +375,10 @@ class WaveNet():
 		for i, (n_in, n_out) in enumerate(channels):
 			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=(n_out, n_in, 1, 1))
 
-			self.softmax_conv_layers.append(L.Convolution2D(n_in, n_out, ksize=1, stride=1, nobias=nobias, initialW=initial_w))
+			conv_layer = L.Convolution2D(n_in, n_out, ksize=1, stride=1, nobias=nobias, initialW=initial_w)
+			if params.gpu_enabled:
+				conv_layer.to_gpu()
+			self.softmax_conv_layers.append(conv_layer)
 
 	def setup_optimizers(self):
 		params = self.params
@@ -404,7 +411,7 @@ class WaveNet():
 		for opt in self.causal_conv_optimizers:
 			opt.zero_grads()
 
-		for opt in self.residual_conv_layers:
+		for opt in self.residual_conv_optimizers:
 			opt.zero_grads()
 			
 		for opt in self.softmax_conv_optimizers:
@@ -414,7 +421,7 @@ class WaveNet():
 		for opt in self.causal_conv_optimizers:
 			opt.update()
 
-		for opt in self.residual_conv_layers:
+		for opt in self.residual_conv_optimizers:
 			opt.update()
 			
 		for opt in self.softmax_conv_optimizers:
@@ -426,6 +433,8 @@ class WaveNet():
 
 	def forward_one_step(self, padded_x_batch_data, softmax=True):
 		x_batch = Variable(padded_x_batch_data)
+		if self.gpu_enabled:
+			x_batch.to_gpu()
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
 		softmax_output = self.forward_softmax_block(residual_output, softmax=softmax)
@@ -457,17 +466,32 @@ class WaveNet():
 			output = F.softmax(output)
 		return output
 
-	# padded_input_batch_data: 			(batchsize, channels, 1, width)
-	# target_signal_batch_data.ndim:	(batchsize, width)
+	# padded_input_batch_data: 			(batchsize, channels, 1, time_step)
+	# target_signal_batch_data.ndim:	(batchsize, time_step)
 	def loss(self, padded_input_batch_data, target_signal_batch_data):
+		batchsize = padded_input_batch_data.shape[0]
+		width = target_signal_batch_data.shape[1]
+		raw_output = self.forward_one_step(padded_input_batch_data, softmax=True)
+		print "prob:"
+		print raw_output.data
 		raw_output = self.forward_one_step(padded_input_batch_data, softmax=False)
+		print "raw:"
 		print raw_output.data.shape
-		print target_signal_batch_data.shape
-		cut = padded_input_batch_data.shape[3] - target_signal_batch_data.shape[1]
+		print target_signal_batch_data
+		cut = padded_input_batch_data.shape[3] - width
 		if cut > 0:
 			raw_output = CausalSlice1d(cut)(raw_output)
 		print raw_output.data
-		print raw_output.data.shape
+
+		# (batchsize * time_step,) <- (batchsize, time_step)
+		target_signal_batch_data = target_signal_batch_data.reshape((-1,))
+		print target_signal_batch_data
+
+		# (batchsize, channels, 1, time_step)
+		raw_output = F.transpose(raw_output, (0, 3, 2, 1))
+		print raw_output.data
+		raw_output = F.reshape(raw_output, (batchsize * width, -1))
+		print raw_output.data
 
 		target_id_batch = Variable(target_signal_batch_data)
 		if self.gpu_enabled:
