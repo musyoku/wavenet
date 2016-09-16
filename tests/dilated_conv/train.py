@@ -6,7 +6,7 @@ from args import args
 from model import params, wavenet
 
 
-input_size = 4
+input_size = 5
 batchsize = 2
-data = np.arange(batchsize * params.audio_channels * input_size).reshape((batchsize, params.audio_channels, 1, input_size)).astype(np.float32)
+data = np.arange(1, batchsize * params.audio_channels * input_size + 1).reshape((batchsize, params.audio_channels, 1, input_size)).astype(np.float32)
 wavenet.forward_residual(data)

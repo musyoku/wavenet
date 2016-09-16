@@ -22,7 +22,7 @@ else:
 	params.residual_conv_channels = [3]
 	params.skip_connections_conv_channels = [3]
 	params.causal_conv_channels = [3]
-	params.residual_conv_dilations = [2]
+	params.residual_conv_dilations = [4]
 	params.causal_conv_apply_batchnorm = False
 	params.residual_conv_apply_batchnorm = False
 	params.skip_connections_conv_apply_batchnorm = False

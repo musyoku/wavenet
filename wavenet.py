@@ -163,8 +163,7 @@ class Slice1d(function.Function):
 		xp = cuda.get_array_module(inputs[0])
 		x, = inputs
 		width = x.shape[3]
-		cut_width = width - self.cut
-		output = x[:,:,:,cut_width + 1:]
+		output = x[:,:,:,self.cut:]
 		return output,
 
 	def backward(self, inputs, grad_outputs):
@@ -203,7 +202,9 @@ class DilatedConvolution1D(L.Convolution2D):
 			pad += self.kernel_width * self.dilation - padded_x_width
 			print "	", pad
 			padded_x_width = input_x_width + pad
-		pad += padded_x_width % self.dilation
+		mod = padded_x_width % self.dilation
+		if mod > 0:
+			pad += self.dilation - mod
 		print "	", pad
 		padded_x = self.padding_1d(x, pad)
 		print "padded_x:"
@@ -211,7 +212,6 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		# to skip (dilation - 1) elements
 		padded_x = F.reshape(padded_x, (batchsize, input_x_channel, -1, self.dilation))
-		# padded_x = F.transpose(padded_x, (0, 1, 3, 2))
 		print "padded_x(reshaped):"
 		print padded_x.data
 
@@ -227,6 +227,8 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		# remove padded elements
 		cut = out.data.shape[3] - input_x_width
+		print "cut:"
+		print cut
 		if cut > 0:
 			out = self.slice_1d(out, cut)
 		print "out(cut):"
@@ -271,7 +273,7 @@ class WaveNet():
 		self.params = params
 
 		# stack residual blocks
-		# set kernel_size to height to remove transpose operation
+		# set kernel_size to height to remove transpose operation in DilatedConvolution1D
 		ksize = (params.residual_conv_kernel_size, 1)
 		nobias_dilation = params.residual_conv_dilation_no_bias
 		nobias_projection = params.residual_conv_projection_no_bias
