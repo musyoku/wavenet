@@ -84,6 +84,8 @@ class Params():
 			raise Exception("causal_conv_channels[-1] != skip_connections_conv_channels[0]")
 		if self.audio_channels != self.skip_connections_conv_channels[-1]:
 			raise Exception("audio_channels != skip_connections_conv_channels[-1]")
+		if len(self.residual_conv_channels) != len(self.residual_conv_dilations):
+			raise Exception("len(residual_conv_channels) != len(residual_conv_dilations)")
 
 def sum_sqnorm(arr):
 	sq_sum = collections.defaultdict(float)
@@ -142,7 +144,9 @@ class Padding1d(function.Function):
 		return grad_outputs[0][:,:,:,self.pad:],
 
 class Slice1d(function.Function):
-	def __init__(self, cut=0):
+	def __init__(self, cut=1):
+		if cut < 1:
+			raise Exception("Slice1d: cut cannot be less than one.")
 		self.cut = cut
 
 	def check_type_forward(self, in_types):
@@ -183,29 +187,50 @@ class DilatedConvolution1D(L.Convolution2D):
 		input_x_channel = x.data.shape[1]
 		input_x_width = x.data.shape[3]
 
+		print "dilated-conv:"
+		print "	", input_x_channel
+		print "	", input_x_width
+		print "	", self.dilation
+
 		# padding
-		# # of elements in padded x >= input_x_width + dilation * (kernel_width - 1) 
-		pad = input_x_width + self.dilation * (self.kernel_width - 1)
+		# # of elements in padded_x >= input_x_width + dilation * (kernel_width - 1) 
+		print "pad:"
+		pad = self.dilation * (self.kernel_width - 1)
+		print "	", pad
 		padded_x_width = input_x_width + pad
 		# we need more padding to perform convlution
 		if padded_x_width < self.kernel_width * self.dilation:
 			pad += self.kernel_width * self.dilation - padded_x_width
+			print "	", pad
 			padded_x_width = input_x_width + pad
 		pad += padded_x_width % self.dilation
+		print "	", pad
 		padded_x = self.padding_1d(x, pad)
+		print "padded_x:"
+		print padded_x.data
 
-		# reshape to skip (dilation - 1) elements
-		padded_x = F.reshape(padded_x, (batchsize * self.dilation, input_x_channel, 1, -1))
+		# to skip (dilation - 1) elements
+		padded_x = F.reshape(padded_x, (batchsize, input_x_channel, -1, self.dilation))
+		# padded_x = F.transpose(padded_x, (0, 1, 3, 2))
+		print "padded_x(reshaped):"
+		print padded_x.data
 
 		# convolution
-		out = super(DilatedConvolution1D, self).__call__(x)
+		out = super(DilatedConvolution1D, self).__call__(padded_x)
+		print "out:"
+		print out.data
 
-		# Remove padded elements
-		cut = padded_x.data.shape[3] - input_x_width
-		out = self.slice_1d(padded_x, cut)
-
-		# reshape to the input shape
+		# reshape to the original shape
 		out = F.reshape(out, (batchsize, input_x_channel, 1, -1))
+		print "out(reshaped):"
+		print out.data
+
+		# remove padded elements
+		cut = out.data.shape[3] - input_x_width
+		if cut > 0:
+			out = self.slice_1d(out, cut)
+		print "out(cut):"
+		print out.data
 
 		return out
 
@@ -231,9 +256,6 @@ class ResidualConvLayer(chainer.Chain):
 		else:
 			z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
 
-		print x.data.shape
-		print z.data.shape
-
 		# 1x1 conv
 		z = self.projection(z)
 		print z.data.shape
@@ -249,6 +271,7 @@ class WaveNet():
 		self.params = params
 
 		# stack residual blocks
+		# set kernel_size to height to remove transpose operation
 		ksize = (params.residual_conv_kernel_size, 1)
 		nobias_dilation = params.residual_conv_dilation_no_bias
 		nobias_projection = params.residual_conv_projection_no_bias
@@ -301,13 +324,17 @@ class WaveNet():
 		return self.params.gpu_enabled
 	
 
-	def forward_residual(self, x_batch):
+	def forward_residual(self, x_batch, test=False):
 		x_batch = Variable(x_batch)
+		print "x_batch:"
+		print x_batch.data
 		skip_connections = 0
 		for layer in self.residual_conv_layers:
-			output, z = layer(x_batch)
-			print output.data
-			print z.data
+			output, z = layer(x_batch, test=test)
+			print "output:"
+			print "	", output.data
+			print "z:"
+			print "	", z.data
 
 	def loss(self, x_batch):
 		pass

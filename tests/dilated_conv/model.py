@@ -17,11 +17,15 @@ if os.path.isfile(filename):
 else:
 	params = Params()
 	params.gpu_enabled = True if args.gpu_enabled == 1 else False
-	params.audio_channels = 7
+	params.audio_channels = 3
 	params.residual_conv_kernel_size = 2
 	params.residual_conv_channels = [3]
-	params.skip_connections_conv_channels = [7]
-	params.causal_conv_channels = [7]
+	params.skip_connections_conv_channels = [3]
+	params.causal_conv_channels = [3]
+	params.residual_conv_dilations = [2]
+	params.causal_conv_apply_batchnorm = False
+	params.residual_conv_apply_batchnorm = False
+	params.skip_connections_conv_apply_batchnorm = False
 
 	wavenet = WaveNet(params)
 	f = open(filename, "w")
