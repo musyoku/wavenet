@@ -173,40 +173,39 @@ class Slice1d(function.Function):
 class DilatedConvolution1D(L.Convolution2D):
 
 	def padding_1d(self, x, pad):
-		return Padding1d(pad=pad)(x)
+		return Padding1d(pad)(x)
 
-	def slice_1d(self, x, pad):
-		return Slice1d(pad=pad)(x)
+	def slice_1d(self, x, cut):
+		return Slice1d(cut)(x)
 
-	def __call__(self, x, dilation=1):
-		if self.has_uninitialized_params:
-			self._initialize_params(x.shape[1])
-		kernel_width = self.ksize[0]
-
-		batchsize = x.shape[0]
-		input_x_channel = x.shape[1]
-		input_x_width = x.shape[3]
+	def __call__(self, x):
+		batchsize = x.data.shape[0]
+		input_x_channel = x.data.shape[1]
+		input_x_width = x.data.shape[3]
 
 		# padding
 		# # of elements in padded x >= input_x_width + dilation * (kernel_width - 1) 
-		pad = input_x_width + dilation * (self.kernel_width - 1)
+		pad = input_x_width + self.dilation * (self.kernel_width - 1)
 		padded_x_width = input_x_width + pad
 		# we need more padding to perform convlution
-		if padded_x_width < kernel_width * dilation:
-			pad += kernel_width * dilation - padded_x_width
+		if padded_x_width < self.kernel_width * self.dilation:
+			pad += self.kernel_width * self.dilation - padded_x_width
 			padded_x_width = input_x_width + pad
-		pad += padded_x_width % dilation
+		pad += padded_x_width % self.dilation
 		padded_x = self.padding_1d(x, pad)
 
 		# reshape to skip (dilation - 1) elements
-		padded_x = F.reshape(batchsize * self.dilation, input_x_channel, 1, -1)
+		padded_x = F.reshape(padded_x, (batchsize * self.dilation, input_x_channel, 1, -1))
 
 		# convolution
-		out = F.convolution_2d(x, self.W, self.b, self.stride, self.pad, self.use_cudnn)
+		out = super(DilatedConvolution1D, self).__call__(x)
 
 		# Remove padded elements
-		cut = padded_x.shape[3] - input_x_width
+		cut = padded_x.data.shape[3] - input_x_width
 		out = self.slice_1d(padded_x, cut)
+
+		# reshape to the input shape
+		out = F.reshape(out, (batchsize, input_x_channel, 1, -1))
 
 		return out
 
@@ -228,9 +227,9 @@ class ResidualConvLayer(chainer.Chain):
 
 		# gated activation
 		if self.batchnorm_before_conv == False and self.apply_batchnorm:
-			z = F.tanh(self.batchnorm_f(self.wf(x, dilation=self.dilation)), test=test) * F.sigmoid(self.batchnorm_g(self.wg(x, dilation=self.dilation), test=test))
+			z = F.tanh(self.batchnorm_f(self.wf(x)), test=test) * F.sigmoid(self.batchnorm_g(self.wg(x), test=test))
 		else:
-			z = F.tanh(self.wf(x, dilation=self.dilation)) * F.sigmoid(self.wg(x, dilation=self.dilation))
+			z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
 
 		print x.data.shape
 		print z.data.shape
@@ -258,23 +257,43 @@ class WaveNet():
 		channels += zip(params.residual_conv_channels[:-1], params.residual_conv_channels[1:])
 		for i, (n_in, n_out) in enumerate(channels):
 			shape_w = (n_out, n_in, ksize[0], ksize[1])
+			dilation = params.residual_conv_dilations[i]
+			attributes = {}
+
+			# weight for filter
 			initial_w = np.random.normal(scale=math.sqrt(2.0 / (ksize[0] * ksize[0] * n_out)), size=shape_w)
 			initial_w = np.ones(shape_w).astype(np.float32)
-			attributes = {}
-			dilation = params.residual_conv_dilations[i]
-			attributes["wf"] = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
-			attributes["wg"] = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+
+			# filter
+			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			dilated_conv_layer.kernel_width = ksize[0]
+			dilated_conv_layer.dilation = dilation
+			attributes["wf"] = dilated_conv_layer 
+
+			# weight for gate
+			initial_w = np.random.normal(scale=math.sqrt(2.0 / (ksize[0] * ksize[0] * n_out)), size=shape_w)
+			initial_w = np.ones(shape_w).astype(np.float32)
+
+			# gate
+			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			dilated_conv_layer.dilation = dilation
+			dilated_conv_layer.kernel_width = ksize[0]
+			attributes["wg"] = dilated_conv_layer
+
+			# projection
 			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
-			if param.residual_conv_batchnorm_before_conv:
+
+			# batchnorm
+			if params.residual_conv_batchnorm_before_conv:
 				attributes["batchnorm"] = L.BatchNormalization(n_in)
 			else:
 				attributes["batchnorm_g"] = L.BatchNormalization(n_out)
 				attributes["batchnorm_f"] = L.BatchNormalization(n_out)
+
+			# residual conv block
 			conv_layer = ResidualConvLayer(**attributes)
 			conv_layer.apply_batchnorm = params.residual_conv_apply_batchnorm
 			conv_layer.batchnorm_before_conv = params.residual_conv_batchnorm_before_conv
-			conv_layer.dilation = dilation
-			conv_layer.kernel_width = ksize[0]
 			self.residual_conv_layers.append(conv_layer)
 
 	@property
