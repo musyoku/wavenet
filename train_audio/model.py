@@ -11,8 +11,12 @@ except:
 filename = args.params_dir + "/{}".format(args.params_filename)
 if os.path.isfile(filename):
 	f = open(filename)
-	dict = json.load(f)
-	params = Params(dict)
+	try:
+		dict = json.load(f)
+		params = Params(dict)
+	except:
+		params = Params()
+		pass
 	wavenet = WaveNet(params)
 else:
 	params = Params()

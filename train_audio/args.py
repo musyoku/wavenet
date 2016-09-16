@@ -13,7 +13,7 @@ parser.add_argument("--params_filename", type=str, default="params.json")
 
 # generation
 parser.add_argument("--gen_dir", type=str, default="gen")
-parser.add_argument("--duration_seconds", type=float, default=1)
+parser.add_argument("--duration_sec", type=float, default=1.0)
 
 # seed
 parser.add_argument("--seed", type=int, default=None)
