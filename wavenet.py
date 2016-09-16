@@ -31,7 +31,8 @@ class Params():
 		# audio input -> conv -> (128,) -> conv -> (128,) -> conv -> (128,) -> residual dilated conv stack
 		self.causal_conv_channels = [128, 128, 128]
 
-		self.residual_conv_no_bias = True
+		self.residual_conv_dilation_no_bias = True
+		self.residual_conv_projection_no_bias = True
 		self.residual_conv_kernel_size = 2
 		self.residual_conv_apply_batchnorm = True
 		self.residual_conv_batchnorm_before_conv = True
@@ -114,6 +115,8 @@ class ResidualConvLayer(chainer.Chain):
 	def __init__(self, **layers):
 		super(ResidualConvLayer, self).__init__(**layers)
 		self.apply_batchnorm = False
+		self.batchnorm_before_conv = True
+		self.dilation = 1
 		self.test = False
 
 	@property
@@ -123,6 +126,7 @@ class ResidualConvLayer(chainer.Chain):
 	def __call__(self, x, test=False, apply_f=True):
 		if self.apply_batchnorm:
 			x = self.batchnorm(x)
+		# padding
 		# gated activation
 		z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
 		print x.data.shape
@@ -142,26 +146,25 @@ class WaveNet():
 
 		# stack residual blocks
 		ksize = (params.residual_conv_kernel_size, 1)
-		nobias = params.residual_conv_no_bias
+		nobias_dilation = params.residual_conv_dilation_no_bias
+		nobias_projection = params.residual_conv_projection_no_bias
 		self.residual_conv_layers = []
 		channels = [(params.audio_channels, params.residual_conv_channels[0])]
 		channels += zip(params.residual_conv_channels[:-1], params.residual_conv_channels[1:])
 		for i, (n_in, n_out) in enumerate(channels):
-			w_shape = (n_out, n_in, ksize[0], ksize[1])
-			initial_w = np.ones(w_shape).astype(np.float32)
+			shape_w = (n_out, n_in, ksize[0], ksize[1])
+			initial_w = np.random.normal(scale=math.sqrt(2.0 / (ksize[0] * ksize[0] * n_out)), size=shape_w)
 			attributes = {}
-			attributes["wf"] = L.Convolution2D(n_in, n_out, ksize, stride=ksize, nobias=nobias, initialW=initial_w)
-			attributes["wg"] = L.Convolution2D(n_in, n_out, ksize, stride=ksize, nobias=nobias, initialW=initial_w)
-			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1)
+			dilation = params.residual_conv_dilations[i]
+			attributes["wf"] = L.Convolution2D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			attributes["wg"] = L.Convolution2D(n_in, n_out, ksize, stride=1, nobias=nobias_dilation, initialW=initial_w)
+			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
 			attributes["batchnorm"] = L.BatchNormalization(n_in)
 			conv_layer = ResidualConvLayer(**attributes)
-			conv_layer.apply_batchnorm = params.apply_batchnorm
+			conv_layer.apply_batchnorm = params.residual_conv_apply_batchnorm
+			conv_layer.batchnorm_before_conv = params.residual_conv_batchnorm_before_conv
+			conv_layer.dilation = dilation
 			self.residual_conv_layers.append(conv_layer)
-
-	@property
-	def input_receptive_size(self):
-		params = self.params
-		return params.residual_conv_kernel_size ** (len(params.residual_conv_channels) + 1)
 
 	@property
 	def gpu_enabled(self):
