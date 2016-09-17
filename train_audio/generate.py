@@ -6,7 +6,7 @@ from args import args
 from model import params, wavenet
 import data
 
-def generate_audio(receptive_field_width_ms=25, sampling_rate=44100, generate_duration_sec=1):
+def generate_audio(receptive_field_width_ms=25, sampling_rate=48000, generate_duration_sec=1):
 	# e.g.
 	# 48000 Hz * 0.25 = 12000 time steps (= 250 milliseconds receptive field)
 	receptive_field_width_steps = int(sampling_rate * receptive_field_width_ms / 1000.0)
@@ -42,7 +42,7 @@ def generate_audio(receptive_field_width_ms=25, sampling_rate=44100, generate_du
 	except:
 		pass
 	filename = "{}/generated.wav".format(args.generate_dir)
-	data.save_audio_file(filename, generated_quantized_audio, params.audio_channels, format="16bit_pcm")
+	data.save_audio_file(filename, generated_quantized_audio, params.audio_channels, format="16bit_pcm", sampling_rate=sampling_rate)
 
 def main():
 	generate_audio(generate_duration_sec=args.generate_sec, sampling_rate=args.sampling_rate)

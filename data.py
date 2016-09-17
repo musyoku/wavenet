@@ -31,16 +31,17 @@ def save_audio_file(filename, quantized_signal, quantized_channels=256, format="
 
 	if format == "16bit_pcm":
 		max = 1<<15
+		type = np.int16
 	elif format == "32bit_pcm":
 		max = 1<<31
+		type = np.int32
 	elif format == "8bit_pcm":
 		max = 1<<8 - 1
+		type = np.uint8
 	signals_1d *= max
-
-	audio = signals_1d.reshape((-1, 1)).astype(int)
+	
+	audio = signals_1d.reshape((-1, 1)).astype(type)
 	audio = np.repeat(audio, 2, axis=1)
-	print audio
-
 	wavfile.write(filename, sampling_rate, audio)
 
 # convert signal to 1xW image

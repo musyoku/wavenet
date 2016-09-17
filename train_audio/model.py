@@ -15,8 +15,7 @@ if os.path.isfile(filename):
 		dict = json.load(f)
 		params = Params(dict)
 	except:
-		params = Params()
-		pass
+		raise Exception("could not load json")
 	wavenet = WaveNet(params)
 else:
 	params = Params()
@@ -41,8 +40,8 @@ else:
 	params.gradient_clipping = 10.0
 
 	wavenet = WaveNet(params)
-	f = open(filename, "w")
-	json.dump(params.to_dict(), f, indent=4)
+	with open(filename, "w") as f:
+		json.dump(params.to_dict(), f, indent=4)
 
 params.gpu_enabled = True if args.gpu_enabled == 1 else False
 params.dump()
