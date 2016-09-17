@@ -4,7 +4,6 @@ import os, sys
 sys.path.append(os.path.split(os.getcwd())[0])
 from args import args
 from model import params, wavenet
-from train import create_signal_batch
 import data
 
 def generate_audio(receptive_field_width_ms=25, sampling_rate=44100, generate_duration_sec=1):

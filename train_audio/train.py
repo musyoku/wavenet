@@ -7,23 +7,36 @@ from model import params, wavenet
 import data
 
 def create_padded_batch(signal, batch_size, pos, shift, receptive_width, padded_width):
+	# e.g.
+	# input window:  0 - 100
+	# target window: 1 - 101
+	# therefore we crop 0 - 101
 	crop = signal[pos * batch_size * padded_width + shift:(pos + 1) * batch_size * padded_width + shift + 1]
 	x = crop[:-1]
 	y = crop[1:]
-	input_batch = x.reshape((batch_size, -1))
+
+	# insted of padding zero for the residual conv block, we pad with the actual signals
+	padded_input_batch = x.reshape((batch_size, -1))
+
+	# remove padding
 	target_batch = y.reshape((batch_size, -1))[:,(padded_width - receptive_width):]
-	return input_batch, target_batch
+
+	return padded_input_batch, target_batch
 
 def train_audio(
 		filename, 
-		batch_size=8,
+		batch_size=4,
 		save_per_update=500,
-		log_per_update=500,
-		repeat=20
+		log_per_update=100,
+		repeat=100
 	):
 	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.audio_channels)
+
+	# receptive field width for the top residual dilated conv layer
+	# receptive field width is determined automatically when determining the depth of the residual dilated conv block
 	receptive_steps = params.residual_conv_dilations[-1] * (params.residual_conv_kernel_width - 1)
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
+
 	print "training", filename	
 	print "	sampling rate:", sampling_rate, "[Hz]"
 	print "	receptive field width:", receptive_msec, "[millisecond]"
@@ -49,11 +62,14 @@ def train_audio(
 			for shift in xrange(padded_input_width):
 				# check if we can create batch
 				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
+					# create batch
 					padded_input_batch, target_batch = create_padded_batch(quantized_signal, batch_size, pos, shift, target_width, padded_input_width)
 
 					# convert to 1xW image whose channel is equal to quantized audio_channels
+					# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=audio channels), HEIGHT(=1), WIDTH(=receptive field))
 					padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.audio_channels)
 
+					# update weights
 					loss = wavenet.loss(padded_x_batch, target_batch)
 					wavenet.backprop(loss)
 
@@ -72,7 +88,7 @@ def train_audio(
 	wavenet.save(dir=args.model_dir)
 
 def main():
-	train_audio("./wav_test/voice.wav")
+	train_audio("./wav_test/ring.wav")
 
 if __name__ == '__main__':
 	main()
