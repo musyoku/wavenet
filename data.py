@@ -20,9 +20,9 @@ def load_audio_file(filename, channels=256, format="16bit_pcm"):
 	quantized_signal = (np.clip(signal * 0.5 + 0.5, 0, 1) * mu).astype(int)
 	return quantized_signal, sampling_rate
 
-def save_audio_file(filename, signals_1d, channels, format="16bit_pcm", sampling_rate=48000):
-	signals_1d = signals_1d.astype(float)
-	signals_1d = (signals_1d / channels - 0.5) * 2.0
+def save_audio_file(filename, quantized_signals_1d, channels=256, format="16bit_pcm", sampling_rate=48000):
+	quantized_signals_1d = quantized_signals_1d.astype(float)
+	signals_1d = (quantized_signals_1d / channels - 0.5) * 2.0
 
 	# inv mu-law companding transformation (ITU-T, 1988)
 	mu = channels - 1
@@ -39,6 +39,7 @@ def save_audio_file(filename, signals_1d, channels, format="16bit_pcm", sampling
 
 	audio = signals_1d.reshape((-1, 1)).astype(int)
 	audio = np.repeat(audio, 2, axis=1)
+	print audio
 
 	wavfile.write(filename, sampling_rate, audio)
 

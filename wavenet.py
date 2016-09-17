@@ -41,7 +41,6 @@ class Params():
 
 		self.softmax_conv_no_bias = False
 		# Note: kernel_height is fixed to 1
-		self.softmax_wscale = 0.01
 		self.softmax_conv_kernel_width = 2
 		# [<- input   output ->]
 		# skip-connections -> ReLU -> conv -> (128,) -> ReLU -> conv -> (256,) -> softmax -> prediction

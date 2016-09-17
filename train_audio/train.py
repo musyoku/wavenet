@@ -23,7 +23,7 @@ def train_audio(
 	# e.g.
 	# 48000 Hz * 0.25 = 12000 time steps (= 250 milliseconds receptive field)
 	quantized_signal, sampling_rate = data.load_audio_file(filename, channels=params.audio_channels)
-	receptive_field_width_steps = params.residual_conv_dilations[-1]
+	receptive_field_width_steps = params.residual_conv_dilations[-1] * (params.residual_conv_kernel_width - 1)
 	receptive_field_width_ms = int(receptive_field_width_steps * 1000.0 / sampling_rate)
 	print "training", filename	
 	print "	sampling rate:", sampling_rate, "[Hz]"
@@ -42,8 +42,11 @@ def train_audio(
 	if padded_input_width * batch_size + 1 > quantized_signal.size:
 		raise Exception("batch_size too large")
 
+	pos_range = quantized_signal.size // (padded_input_width * batch_size)
+	max_step = repeat * pos_range * padded_input_width
+
 	for rep in xrange(repeat):
-		for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
+		for pos in xrange(pos_range):
 			for shift in xrange(padded_input_width):
 				# check if we can create batch
 				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
@@ -57,11 +60,12 @@ def train_audio(
 					wavenet.backprop(loss)
 
 					# logging
+					current_step = shift + pos * padded_input_width + rep * pos_range
 					sum_loss += float(loss.data)
 					num_updates += 1
 					total_updates += 1
 					if num_updates == 50:
-						print "loss: {:.6f}".format(sum_loss / 50.0)
+						print "({}/{}) loss: {:.6f}".format(current_step, max_step, sum_loss / 50.0)
 						num_updates = 0
 						sum_loss = 0
 					if total_updates % save_per_update == 0:
