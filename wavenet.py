@@ -7,15 +7,6 @@ from chainer.utils import type_check
 from chainer import functions as F
 from chainer import links as L
 
-activations = {
-	"sigmoid": F.sigmoid, 
-	"tanh": F.tanh, 
-	"softplus": F.softplus, 
-	"relu": F.relu, 
-	"leaky_relu": F.leaky_relu, 
-	"elu": F.elu
-}
-
 class Params():
 	def __init__(self, dict=None):
 		self.audio_channels = 256
@@ -434,7 +425,7 @@ class WaveNet():
 			x_batch.to_gpu()
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
-		softmax_output = self.forward_softmax_block(residual_output, softmax=softmax)
+		softmax_output = self.forward_softmax_block(sum_skip_connections, softmax=softmax)
 		if return_numpy:
 			if self.gpu_enabled:
 				softmax_output.to_cpu()
@@ -442,27 +433,31 @@ class WaveNet():
 		return softmax_output
 
 	def forward_causal_block(self, x_batch):
+		input_batch = x_batch
 		for layer in self.causal_conv_layers:
-			output = layer(x_batch)
+			output = layer(input_batch)
+			input_batch = output
 		return output
 
 	def forward_residual_block(self, x_batch):
 		# print "x_batch:"
 		# print x_batch.data
 		sum_skip_connections = 0
+		input_batch = x_batch
 		for layer in self.residual_conv_layers:
-			output, z = layer(x_batch)
+			output, z = layer(input_batch)
 			sum_skip_connections += z
-			# print "output:"
-			# print "	", output.data
-			# print "z:"
-			# print "	", z.data
+			input_batch = output
+
 		return output, sum_skip_connections
 
 	def forward_softmax_block(self, x_batch, softmax=True):
 		batchsize = x_batch.data.shape[0]
+		input_batch = x_batch
 		for layer in self.softmax_conv_layers:
-			output = layer(x_batch)
+			output = layer(input_batch)
+			output = F.relu(output)
+			input_batch = output
 		if softmax:
 			output = F.softmax(output)
 		return output

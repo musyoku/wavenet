@@ -12,8 +12,9 @@ parser.add_argument("--params_dir", type=str, default="params")
 parser.add_argument("--params_filename", type=str, default="params.json")
 
 # generation
-parser.add_argument("--gen_dir", type=str, default="gen")
-parser.add_argument("--duration_sec", type=float, default=1.0)
+parser.add_argument("--generate_dir", type=str, default="generated_audio")
+parser.add_argument("--generate_sec", type=float, default=1.0)
+parser.add_argument("--sampling_rate", type=int, default=44100)
 
 # seed
 parser.add_argument("--seed", type=int, default=None)
