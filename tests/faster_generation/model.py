@@ -11,38 +11,34 @@ except:
 filename = args.params_dir + "/{}".format(args.params_filename)
 if os.path.isfile(filename):
 	f = open(filename)
-	try:
-		dict = json.load(f)
-		params = Params(dict)
-	except:
-		raise Exception("could not load json")
+	dict = json.load(f)
+	params = Params(dict)
 	wavenet = WaveNet(params)
 else:
 	params = Params()
-	params.audio_channels = 256
+	params.audio_channels = 6
 
 	params.causal_conv_no_bias = True
 	params.causal_conv_kernel_width = 2
-	params.causal_conv_channels = [128]
+	params.causal_conv_channels = [4]
 
 	params.residual_conv_dilation_no_bias = True
 	params.residual_conv_projection_no_bias = True
 	params.residual_conv_kernel_width = 2
-	params.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32]
-	params.residual_block_stack = 5
+	params.residual_conv_channels = [3, 3, 3]
 
-	params.softmax_conv_no_bias = True
+	params.softmax_conv_no_bias = False
 	params.softmax_conv_kernel_width = 2
-	params.softmax_conv_channels = [128, 256]
+	params.softmax_conv_channels = [4, 6]
 
-	params.learning_rate = 0.001
+	params.learning_rate = 0.01
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0
 
 	wavenet = WaveNet(params)
-	with open(filename, "w") as f:
-		json.dump(params.to_dict(), f, indent=4)
+	f = open(filename, "w")
+	json.dump(params.to_dict(), f, indent=4)
 
 params.gpu_enabled = True if args.gpu_enabled == 1 else False
 params.dump()

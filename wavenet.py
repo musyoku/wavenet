@@ -28,7 +28,20 @@ class Params():
 		self.residual_conv_kernel_width = 2
 		# [<- input   output ->]
 		# causal conv output (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> ...
+		# dilation will be determined automatically by the length of residual_conv_channels
+		# e.g.             dilation = [1,  2,  4,  8,  16, 32, 64,128,256]
 		self.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32]
+		# e.g.
+		# residual_conv_channels = [16, 16] and residual_block_stack = 3
+		# 
+		#                              stack 1                 stack 2                 stack 3
+		#                        dilation 1, 2, ...      dilation 1, 2, ...      dilation 1, 2, ...
+		# causal conv output -> {conv 16 -> conv 16} -> {conv 16 -> conv 16} -> {conv 16 -> conv 16} -> output (it will be ignored)
+		#                           |          |            |          |            |          |
+		#                           +----------+------------+----------+------------+----------+-> skip connection -> softmax
+		# 
+		# the more the deeper
+		self.residual_block_stack = 10
 
 		self.softmax_conv_no_bias = False
 		# Note: kernel_height is fixed to 1
@@ -304,54 +317,55 @@ class WaveNet():
 		kernel_width = params.residual_conv_kernel_width
 		n_in = params.causal_conv_channels[-1]
 
-		for i in xrange(len(params.residual_conv_channels)):
-			n_out = params.residual_conv_channels[i]
-			dilation = params.residual_conv_dilations[i]
-			# kernel
-			if dilation == 1:
-				ksize = (1, kernel_width)
-				shape_w = (n_out, n_in, 1, kernel_width)
-			else:
-				# set kernel_width to kernel's height to remove transpose operation in DilatedConvolution1D
-				ksize = (kernel_width, 1)
-				shape_w = (n_out, n_in, kernel_width, 1)
+		for stack in xrange(params.residual_block_stack):
+			for i in xrange(len(params.residual_conv_channels)):
+				n_out = params.residual_conv_channels[i]
+				dilation = params.residual_conv_dilations[i]
+				# kernel
+				if dilation == 1:
+					ksize = (1, kernel_width)
+					shape_w = (n_out, n_in, 1, kernel_width)
+				else:
+					# set kernel_width to kernel's height to remove transpose operation in DilatedConvolution1D
+					ksize = (kernel_width, 1)
+					shape_w = (n_out, n_in, kernel_width, 1)
 
-			attributes = {}
+				attributes = {}
 
-			# weight for filter
-			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=shape_w)
-			# initial_w = np.ones(shape_w).astype(np.float32)
+				# weight for filter
+				initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=shape_w)
+				# initial_w = np.ones(shape_w).astype(np.float32)
 
-			# filter
-			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
-				kernel_width=kernel_width,
-				dilation=dilation,
-				stride=1, nobias=nobias_dilation, initialW=initial_w)
-			dilated_conv_layer.kernel_width = kernel_width
-			dilated_conv_layer.dilation = dilation
-			attributes["wf"] = dilated_conv_layer 
+				# filter
+				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
+					kernel_width=kernel_width,
+					dilation=dilation,
+					stride=1, nobias=nobias_dilation, initialW=initial_w)
+				dilated_conv_layer.kernel_width = kernel_width
+				dilated_conv_layer.dilation = dilation
+				attributes["wf"] = dilated_conv_layer 
 
-			# weight for gate
-			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=shape_w)
-			# initial_w = np.ones(shape_w).astype(np.float32)
+				# weight for gate
+				initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=shape_w)
+				# initial_w = np.ones(shape_w).astype(np.float32)
 
-			# gate
-			dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
-				kernel_width=kernel_width, 
-				dilation=dilation,
-				stride=1, nobias=nobias_dilation, initialW=initial_w)
-			dilated_conv_layer.dilation = dilation
-			dilated_conv_layer.kernel_width = kernel_width
-			attributes["wg"] = dilated_conv_layer
+				# gate
+				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
+					kernel_width=kernel_width, 
+					dilation=dilation,
+					stride=1, nobias=nobias_dilation, initialW=initial_w)
+				dilated_conv_layer.dilation = dilation
+				dilated_conv_layer.kernel_width = kernel_width
+				attributes["wg"] = dilated_conv_layer
 
-			# projection
-			attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
+				# projection
+				attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
 
-			# residual conv block
-			residual_layer = ResidualConvLayer(**attributes)
-			if params.gpu_enabled:
-				residual_layer.to_gpu()
-			self.residual_conv_layers.append(residual_layer)
+				# residual conv block
+				residual_layer = ResidualConvLayer(**attributes)
+				if params.gpu_enabled:
+					residual_layer.to_gpu()
+				self.residual_conv_layers.append(residual_layer)
 
 		# softmax block
 		self.softmax_conv_layers = []
