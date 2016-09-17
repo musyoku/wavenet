@@ -1,6 +1,6 @@
-*This implementation is currently still under construction.*
+**This implementation is currently still under construction.**
 
-## WAVENET: A GENERATIVE MODEL FOR RAW AUDIO
+## WaveNet: A Generative Model for Raw Audio
 
 This is the Chainer implementation of [WaveNet](http://arxiv.org/abs/1609.03499)
 
