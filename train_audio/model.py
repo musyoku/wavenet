@@ -35,7 +35,7 @@ else:
 	params.softmax_conv_kernel_width = 2
 	params.softmax_conv_channels = [128, 256]
 
-	params.learning_rate = 0.01
+	params.learning_rate = 0.001
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0
