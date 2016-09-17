@@ -6,7 +6,7 @@ from args import args
 from model import params, wavenet
 import data
 
-def create_signal_batch(signal, batch_size, pos, shift, receptive_width, padded_width):
+def create_padded_batch(signal, batch_size, pos, shift, receptive_width, padded_width):
 	crop = signal[pos * batch_size * padded_width + shift:(pos + 1) * batch_size * padded_width + shift + 1]
 	x = crop[:-1]
 	y = crop[1:]
@@ -19,7 +19,7 @@ def train_audio(
 		batch_size=8,
 		save_per_update=500,
 		log_per_update=500,
-		repeat=5
+		repeat=20
 	):
 	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.audio_channels)
 	receptive_steps = params.residual_conv_dilations[-1] * (params.residual_conv_kernel_width - 1)
@@ -49,7 +49,7 @@ def train_audio(
 			for shift in xrange(padded_input_width):
 				# check if we can create batch
 				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
-					padded_input_batch, target_batch = create_signal_batch(quantized_signal, batch_size, pos, shift, target_width, padded_input_width)
+					padded_input_batch, target_batch = create_padded_batch(quantized_signal, batch_size, pos, shift, target_width, padded_input_width)
 
 					# convert to 1xW image whose channel is equal to quantized audio_channels
 					padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.audio_channels)

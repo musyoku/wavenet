@@ -455,8 +455,8 @@ class WaveNet():
 		batchsize = x_batch.data.shape[0]
 		input_batch = x_batch
 		for layer in self.softmax_conv_layers:
+			input_batch = F.elu(input_batch)
 			output = layer(input_batch)
-			output = F.relu(output)
 			input_batch = output
 		if softmax:
 			output = F.softmax(output)
@@ -469,6 +469,7 @@ class WaveNet():
 		width = target_signal_batch_data.shape[1]
 
 		raw_output = self.forward_one_step(padded_input_batch_data, softmax=False)
+
 
 		# remove padding
 		cut = padded_input_batch_data.shape[3] - width
@@ -487,6 +488,7 @@ class WaveNet():
 			target_id_batch.to_gpu()
 
 		loss = F.sum(F.softmax_cross_entropy(raw_output, target_id_batch))
+
 		return loss
 
 	def backprop(self, loss):
