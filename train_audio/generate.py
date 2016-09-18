@@ -44,10 +44,14 @@ def generate_audio(receptive_field_width_ms=25, sampling_rate=48000, generate_du
 
 	print "\ndone in {:.3f} sec".format(time.time() - start_time)
 
+	# remove zero paddings
+	generated_quantized_audio = generated_quantized_audio[padded_input_width:]
+
 	try:
 		os.mkdir(args.generate_dir)
 	except:
 		pass
+
 	filename = "{}/generated.wav".format(args.generate_dir)
 	data.save_audio_file(filename, generated_quantized_audio, params.audio_channels, format="16bit_pcm", sampling_rate=sampling_rate)
 

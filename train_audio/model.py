@@ -18,6 +18,8 @@ if os.path.isfile(filename):
 	except:
 		raise Exception("could not load {}".format(filename))
 
+	params.gpu_enabled = True if args.gpu_enabled == 1 else False
+
 	if args.use_faster_wavenet:
 		wavenet = FasterWaveNet(params)
 	else:
@@ -40,10 +42,12 @@ else:
 	params.softmax_conv_kernel_width = 2
 	params.softmax_conv_channels = [128, 256]
 
-	params.learning_rate = 0.01
+	params.learning_rate = 0.001
 	params.gradient_momentum = 0.9
-	params.weight_decay = 0.00001
+	params.weight_decay = 0.000001
 	params.gradient_clipping = 10.0
+	
+	params.gpu_enabled = True if args.gpu_enabled == 1 else False
 
 	if args.use_faster_wavenet:
 		wavenet = FasterWaveNet(params)
@@ -53,6 +57,5 @@ else:
 	with open(filename, "w") as f:
 		json.dump(params.to_dict(), f, indent=4)
 
-params.gpu_enabled = True if args.gpu_enabled == 1 else False
 params.dump()
 wavenet.load(args.model_dir)

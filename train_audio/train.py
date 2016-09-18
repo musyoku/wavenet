@@ -37,8 +37,6 @@ def train_audio(
 	receptive_steps = params.residual_conv_dilations[-1] * (params.residual_conv_kernel_width - 1)
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
 
-	# pad with zero
-	quantized_signal = np.insert(quantized_signal, 0, np.zeros((receptive_steps,), dtype=np.int32), axis=0)
 
 	print "training", filename	
 	print "	sampling rate:", sampling_rate, "[Hz]"
@@ -56,6 +54,9 @@ def train_audio(
 
 	if padded_input_width * batch_size + 1 > quantized_signal.size:
 		raise Exception("batch_size too large")
+		
+	# pad with zero
+	quantized_signal = np.insert(quantized_signal, 0, np.zeros((padded_input_width,), dtype=np.int32), axis=0)
 
 	pos_range = quantized_signal.size // (padded_input_width * batch_size)
 	max_step = pos_range * padded_input_width
