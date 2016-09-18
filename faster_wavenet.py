@@ -37,10 +37,13 @@ class FasterWaveNet(WaveNet):
 		self.prev_residual_outputs_z = []
 		sum_skip_connections = 0
 		input_batch = x_batch
-		for layer in self.residual_conv_layers:
+		for i, layer in enumerate(self.residual_conv_layers):
 			output, z = layer(input_batch)
 			self.prev_residual_outputs_out.append(output.data)
 			self.prev_residual_outputs_z.append(z.data)
+			if i == 1:
+				print output.data
+				print z.data
 			sum_skip_connections += z
 			input_batch = output
 
@@ -59,13 +62,19 @@ class FasterWaveNet(WaveNet):
 
 	# for faster generation
 	def _forward_one_step(self, x_batch_data, softmax=True, return_numpy=False):
-		if hasattr(self, "prev_causal_outputs") == False:
+		if hasattr(self, "prev_causal_outputs") == False or self.prev_causal_outputs is None:
 			return self.forward_one_step(x_batch_data, softmax=softmax, return_numpy=return_numpy)
 
 		if self.gpu_enabled:
 			x_batch_data = cuda.to_gpu(x_batch_data)
 		causal_output = self._forward_causal_block(x_batch_data)
 		residual_output, sum_skip_connections = self._forward_residual_block(causal_output)
+		softmax_output = self._forward_softmax_block(sum_skip_connections, softmax=softmax)
+		if return_numpy:
+			if self.gpu_enabled:
+				softmax_output.to_cpu()
+			return softmax_output.data
+		return softmax_output
 
 	def _forward_causal_block(self, x_batch_data):
 		input = x_batch_data
@@ -76,6 +85,7 @@ class FasterWaveNet(WaveNet):
 			prev_output = xp.roll(prev_output, -1, axis=3)
 			prev_output[0, :, 0, -1] = output[0, :, 0, 0]
 			output = prev_output
+			self.prev_causal_outputs[i] = output
 			input = output
 		return output
 
@@ -93,8 +103,15 @@ class FasterWaveNet(WaveNet):
 
 			prev_z = self.prev_residual_outputs_z[i]
 			prev_z = xp.roll(prev_z, -1, axis=3)
-			prev_z[0, :, 0, -1] = output[0, :, 0, 0]
+			prev_z[0, :, 0, -1] = z[0, :, 0, 0]
 			z = prev_z
+
+			if i == 1:
+				print output
+				print z
+
+			self.prev_residual_outputs_out[i] = output
+			self.prev_residual_outputs_z[i] = z
 
 			sum_skip_connections += z
 			input = output
@@ -102,8 +119,7 @@ class FasterWaveNet(WaveNet):
 		return output, sum_skip_connections
 
 	def _forward_softmax_block(self, x_batch, softmax=True):
-		batchsize = x_batch.data.shape[0]
-		input_batch = x_batch
+		input_batch = Variable(x_batch)
 		for layer in self.softmax_conv_layers:
 			input_batch = F.elu(input_batch)
 			output = layer(input_batch)
