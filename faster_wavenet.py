@@ -41,9 +41,6 @@ class FasterWaveNet(WaveNet):
 			output, z = layer(input_batch)
 			self.prev_residual_outputs_out.append(output.data)
 			self.prev_residual_outputs_z.append(z.data)
-			if i == 1:
-				print output.data
-				print z.data
 			sum_skip_connections += z
 			input_batch = output
 
@@ -81,11 +78,14 @@ class FasterWaveNet(WaveNet):
 		xp = cuda.get_array_module(input)
 		for i, layer in enumerate(self.causal_conv_layers):
 			output = layer._forward(input)
+
 			prev_output = self.prev_causal_outputs[i]
 			prev_output = xp.roll(prev_output, -1, axis=3)
 			prev_output[0, :, 0, -1] = output[0, :, 0, 0]
 			output = prev_output
+
 			self.prev_causal_outputs[i] = output
+			
 			input = output
 		return output
 
@@ -105,10 +105,6 @@ class FasterWaveNet(WaveNet):
 			prev_z = xp.roll(prev_z, -1, axis=3)
 			prev_z[0, :, 0, -1] = z[0, :, 0, 0]
 			z = prev_z
-
-			if i == 1:
-				print output
-				print z
 
 			self.prev_residual_outputs_out[i] = output
 			self.prev_residual_outputs_z[i] = z

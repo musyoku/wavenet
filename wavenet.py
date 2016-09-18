@@ -203,8 +203,9 @@ class DilatedConvolution1D(L.Convolution2D):
 			x = xp.empty((1, x_batch_data.shape[1], 2, 1), dtype=xp.float32)
 			x[0, :, 0, 0] = x_batch_data[0, :, 0, -self.dilation-1]
 			x[0, :, 1, 0] = x_batch_data[0, :, 0, -1]
-		out = super(DilatedConvolution1D, self).__call__(Variable(x))
-		return out.data
+
+		W = self.W.data
+		return W.reshape(1, self.out_channels, self.in_channels * self.kernel_width).dot(x.reshape(1, self.in_channels * self.kernel_width, 1))
 
 	def __call__(self, x):
 		batchsize = x.data.shape[0]

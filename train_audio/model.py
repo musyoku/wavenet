@@ -2,6 +2,7 @@
 import json, os
 from args import args
 from wavenet import WaveNet, Params
+from faster_wavenet import FasterWaveNet
 
 # load params.json
 try:
@@ -16,7 +17,11 @@ if os.path.isfile(filename):
 		params = Params(dict)
 	except:
 		raise Exception("could not load {}".format(filename))
-	wavenet = WaveNet(params)
+
+	if args.use_faster_wavenet:
+		wavenet = FasterWaveNet(params)
+	else:
+		wavenet = WaveNet(params)
 else:
 	params = Params()
 	params.audio_channels = 256
@@ -40,7 +45,11 @@ else:
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0
 
-	wavenet = WaveNet(params)
+	if args.use_faster_wavenet:
+		wavenet = FasterWaveNet(params)
+	else:
+		wavenet = WaveNet(params)
+
 	with open(filename, "w") as f:
 		json.dump(params.to_dict(), f, indent=4)
 
