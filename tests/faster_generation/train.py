@@ -14,6 +14,15 @@ def create_padded_batch(signal, batch_size, pos, shift, receptive_width, padded_
 	target_batch = y.reshape((batch_size, -1))[:,(padded_width - receptive_width):]
 	return input_batch, target_batch
 
+def create_batch(signal, batch_size, input_width, target_width, pos=0):
+	indecis = np.random.randint(0, signal.size - input_width - 1, size=batch_size)
+	input_batch = np.empty((batch_size, input_width), dtype=np.int32)
+	target_batch = np.empty((batch_size, target_width), dtype=np.int32)
+	for n in xrange(batch_size):
+		start = indecis[n]
+		input_batch[n] = signal[start:start + input_width]
+		target_batch[n] = signal[start + input_width + 1 - target_width:start + input_width + 1]
+	return input_batch, target_batch
 
 def train_audio():
 
@@ -21,8 +30,11 @@ def train_audio():
 	padded_input_width = 9
 	batch_size = 2
 
-	quantized_signal = np.mod(np.arange(1, padded_input_width * batch_size * 4), 6)
+	quantized_signal = np.mod(np.arange(1, 100), 6)
 	print quantized_signal
+
+	batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width, pos=0)
+	raise Exception()
 
 	for rep in xrange(30):
 		for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
