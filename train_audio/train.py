@@ -20,7 +20,7 @@ def train_audio(
 		filename, 
 		batch_size=10,
 		save_per_update=500,
-		log_per_update=100,
+		log_per_update=50,
 		epochs=100
 	):
 	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.audio_channels)
@@ -55,8 +55,9 @@ def train_audio(
 
 	max_batches = int((quantized_signal.size - padded_input_width) / float(batch_size))
 
-	for epoch in xrange(epochs):
-		for batch_index in xrange(max_batches):
+	for epoch in xrange(1, epochs + 1):
+		print "epoch: {}/{}".format(epoch, epochs)
+		for batch_index in xrange(1, max_batches + 1):
 			# create batch
 			padded_input_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
 
@@ -70,15 +71,16 @@ def train_audio(
 
 			# logging
 			sum_loss += float(loss.data)
-			num_updates += 1
 			total_updates += 1
-			if num_updates == log_per_update:
-				print "epoch: {}/{} batch: {}/{} loss: {:.6f}".format(epoch + 1, epochs, batch_index + 1, max_batches, sum_loss / float(log_per_update))
-				num_updates = 0
+			if batch_index % log_per_update == 0:
+				print "	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss / float(log_per_update))
 				sum_loss = 0
+
+			# save the model
 			if total_updates % save_per_update == 0:
 				wavenet.save(dir=args.model_dir)
 
+		wavenet.save(dir=args.model_dir)
 	wavenet.save(dir=args.model_dir)
 
 def main():
