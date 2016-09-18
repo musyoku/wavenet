@@ -19,7 +19,7 @@ class Params():
 		self.causal_conv_kernel_width = 2
 		# [<- input   output ->]
 		# audio input -> conv -> (128,) -> residual dilated conv stack
-		# to stack more layers, [128, 128, 128, ...]
+		# to add more layers, [128, 128, 128, ...]
 		self.causal_conv_channels = [128]
 
 		self.residual_conv_dilation_no_bias = False
@@ -32,16 +32,16 @@ class Params():
 		# e.g.             dilation = [1,  2,  4,  8,  16, 32, 64,128,256]
 		self.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32, 32]
 		# e.g.
-		# residual_conv_channels = [16, 16] and residual_block_stack = 3
+		# residual_conv_channels = [16, 16] and residual_num_blocks = 3
 		# 
-		#                              stack 1                 stack 2                 stack 3
+		#                                #1                      #2                      #3
 		#                        dilation 1, 2, ...      dilation 1, 2, ...      dilation 1, 2, ...
 		# causal conv output -> {conv 16 -> conv 16} -> {conv 16 -> conv 16} -> {conv 16 -> conv 16} -> output (it will be ignored)
 		#                           |          |            |          |            |          |
 		#                           +----------+------------+----------+------------+----------+-> skip connection -> softmax
 		# 
 		# the more the deeper
-		self.residual_block_stack = 10
+		self.residual_num_blocks = 10
 
 		self.softmax_conv_no_bias = False
 		# Note: kernel_height is fixed to 1
@@ -192,6 +192,20 @@ class DilatedConvolution1D(L.Convolution2D):
 	def slice_1d(self, x, cut):
 		return CausalSlice1d(cut)(x)
 
+	# for faster generation
+	def _forward(self, x_batch_data):
+		xp = cuda.get_array_module(x_batch_data)
+		if self.dilation == 1:
+			x = xp.empty((1, x_batch_data.shape[1], 1, 2), dtype=xp.float32)
+			x[0, :, 0, 0] = x_batch_data[0, :, 0, -self.dilation-1]
+			x[0, :, 0, 1] = x_batch_data[0, :, 0, -1]
+		else:
+			x = xp.empty((1, x_batch_data.shape[1], 2, 1), dtype=xp.float32)
+			x[0, :, 0, 0] = x_batch_data[0, :, 0, -self.dilation-1]
+			x[0, :, 1, 0] = x_batch_data[0, :, 0, -1]
+		out = super(DilatedConvolution1D, self).__call__(Variable(x))
+		return out.data
+
 	def __call__(self, x):
 		batchsize = x.data.shape[0]
 		input_x_width = x.data.shape[3]
@@ -199,62 +213,37 @@ class DilatedConvolution1D(L.Convolution2D):
 		if self.dilation == 1:
 			# perform normal convolution
 			padded_x = self.padding_1d(x, self.kernel_width - 1)
-			# print "padded_x:"
-			# print padded_x.data
 			out =  super(DilatedConvolution1D, self).__call__(padded_x)
-			# print "out:"
-			# print out.data
 			return out
-
-		# print "dilated-conv:"
-		# print "	", self.in_channels
-		# print "	", input_x_width
-		# print "	", self.dilation
 
 		# padding
 		# # of elements in padded_x >= input_x_width + dilation * (kernel_width - 1) 
-		# print "pad:"
 		pad = self.dilation * (self.kernel_width - 1)
-		# print "	", pad
 		padded_x_width = input_x_width + pad
 		# we need more padding to perform convlution
 		if padded_x_width < self.kernel_width * self.dilation:
 			pad += self.kernel_width * self.dilation - padded_x_width
-			# print "	", pad
 			padded_x_width = input_x_width + pad
 		mod = padded_x_width % self.dilation
 		if mod > 0:
 			pad += self.dilation - mod
-		# print "	", pad
 		padded_x = self.padding_1d(x, pad)
-		# print "padded_x:"
-		# print padded_x.data
 
 		# to skip (dilation - 1) elements
 		padded_x = F.reshape(padded_x, (batchsize, self.in_channels, -1, self.dilation))
 		# we can remove transpose operation when residual_conv_kernel_width is set to the kernel's height
 		# padded_x = F.transpose(padded_x, (0, 1, 3, 2))
-		# print "padded_x(reshaped):"
-		# print padded_x.data
 
 		# convolution
 		out = super(DilatedConvolution1D, self).__call__(padded_x)
-		# print "out:"
-		# print out.data
 
 		# reshape to the original shape
 		out = F.reshape(out, (batchsize, self.out_channels, 1, -1))
-		# print "out(reshaped):"
-		# print out.data
 
 		# remove padded elements
 		cut = out.data.shape[3] - input_x_width
-		# print "cut:"
-		# print cut
 		if cut > 0:
 			out = self.slice_1d(out, cut)
-		# print "out(cut):"
-		# print out.data
 
 		return out
 
@@ -266,6 +255,14 @@ class ResidualConvLayer(chainer.Chain):
 	@property
 	def xp(self):
 		return np if self._cpu else cuda.cupy
+
+	# for faster generation
+	def _forward(self, x):
+		z = F.tanh(self.wf._forward(x)) * F.sigmoid(self.wg._forward(x))
+		z = self.projection(z)
+		output = z.data[0, :, 0, 0] + x[0, :, 0, -1]
+		output = output.reshape((1, -1, 1, 1))
+		return output, z.data
 
 	def __call__(self, x):
 		# gated activation
@@ -300,7 +297,8 @@ class WaveNet():
 
 		for i, (n_in, n_out) in enumerate(channels):
 			attributes = {}
-			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=(n_out, n_in, 1, kernel_width))
+			std = math.sqrt(2.0 / (kernel_width * kernel_width * n_out))
+			initial_w = np.random.normal(scale=std, size=(n_out, n_in, 1, kernel_width))
 
 			layer = DilatedConvolution1D(n_in, n_out, ksize, 
 				kernel_width=kernel_width, 
@@ -317,7 +315,7 @@ class WaveNet():
 		kernel_width = params.residual_conv_kernel_width
 		n_in = params.causal_conv_channels[-1]
 
-		for stack in xrange(params.residual_block_stack):
+		for stack in xrange(params.residual_num_blocks):
 			for i in xrange(len(params.residual_conv_channels)):
 				n_out = params.residual_conv_channels[i]
 				dilation = params.residual_conv_dilations[i]
@@ -333,8 +331,8 @@ class WaveNet():
 				attributes = {}
 
 				# weight for filter
-				initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=shape_w)
-				# initial_w = np.ones(shape_w).astype(np.float32)
+				std = math.sqrt(2.0 / (kernel_width * kernel_width * n_out))
+				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# filter
 				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
@@ -346,8 +344,8 @@ class WaveNet():
 				attributes["wf"] = dilated_conv_layer 
 
 				# weight for gate
-				initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=shape_w)
-				# initial_w = np.ones(shape_w).astype(np.float32)
+				std = math.sqrt(2.0 / (kernel_width * kernel_width * n_out))
+				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# gate
 				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
@@ -387,7 +385,7 @@ class WaveNet():
 		
 		self.causal_conv_optimizers = []
 		for layer in self.causal_conv_layers:
-			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			opt = optimizers.NesterovAG(lr=params.learning_rate, momentum=params.gradient_momentum)
 			opt.setup(layer)
 			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
 			opt.add_hook(GradientClipping(params.gradient_clipping))
@@ -395,7 +393,7 @@ class WaveNet():
 		
 		self.residual_conv_optimizers = []
 		for layer in self.residual_conv_layers:
-			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			opt = optimizers.NesterovAG(lr=params.learning_rate, momentum=params.gradient_momentum)
 			opt.setup(layer)
 			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
 			opt.add_hook(GradientClipping(params.gradient_clipping))
@@ -403,7 +401,7 @@ class WaveNet():
 		
 		self.softmax_conv_optimizers = []
 		for layer in self.softmax_conv_layers:
-			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+			opt = optimizers.NesterovAG(lr=params.learning_rate, momentum=params.gradient_momentum)
 			opt.setup(layer)
 			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
 			opt.add_hook(GradientClipping(params.gradient_clipping))
@@ -545,3 +543,4 @@ class WaveNet():
 		for i, layer in enumerate(self.softmax_conv_layers):
 			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)
 			load_hdf5(filename, layer)
+
