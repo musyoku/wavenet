@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import math
 import numpy as np
-import chainer, os, collections, six
+import chainer, os, collections, six, math
 from chainer import cuda, Variable, optimizers, serializers, function, optimizer
 from chainer.utils import type_check
 from chainer import functions as F
@@ -44,8 +44,6 @@ class Params():
 		self.residual_num_blocks = 10
 
 		self.softmax_conv_no_bias = False
-		# Note: kernel_height is fixed to 1
-		self.softmax_conv_kernel_width = 2
 		# [<- input   output ->]
 		# skip-connections -> ReLU -> conv -> (128,) -> ReLU -> conv -> (256,) -> softmax -> prediction
 		self.softmax_conv_channels = [128, 256]
@@ -84,12 +82,6 @@ class Params():
 			raise Exception("causal_conv_channels[-1] != softmax_conv_channels[0]")
 		if self.audio_channels != self.softmax_conv_channels[-1]:
 			raise Exception("audio_channels != softmax_conv_channels[-1]")
-			
-		self.residual_conv_dilations = []
-		dilation = 1
-		for _ in self.residual_conv_channels:
-			self.residual_conv_dilations.append(dilation)
-			dilation *= 2
 
 def sum_sqnorm(arr):
 	sq_sum = collections.defaultdict(float)
@@ -211,6 +203,8 @@ class DilatedConvolution1D(L.Convolution2D):
 		batchsize = x.data.shape[0]
 		input_x_width = x.data.shape[3]
 
+		print x.data[:,0,:,:]
+
 		if self.dilation == 1:
 			# perform normal convolution
 			padded_x = self.padding_1d(x, self.kernel_width - 1)
@@ -218,17 +212,26 @@ class DilatedConvolution1D(L.Convolution2D):
 			return out
 
 		# padding
-		# # of elements in padded_x >= input_x_width + dilation * (kernel_width - 1) 
-		pad = self.dilation * (self.kernel_width - 1)
-		padded_x_width = input_x_width + pad
-		# we need more padding to perform convlution
-		if padded_x_width < self.kernel_width * self.dilation:
-			pad += self.kernel_width * self.dilation - padded_x_width
+		pad = 0
+		padded_x_width = input_x_width
+
+		## check if output width > input width
+		div = input_x_width // self.dilation
+		output_x_width = (div - 1) // (self.kernel_width - 1) * self.dilation
+		if output_x_width < input_x_width:
+			pad = int(math.ceil((input_x_width - output_x_width) / float(self.dilation))) * self.dilation
 			padded_x_width = input_x_width + pad
+
+		## check if we can reshape
 		mod = padded_x_width % self.dilation
 		if mod > 0:
 			pad += self.dilation - mod
-		padded_x = self.padding_1d(x, pad)
+			padded_x_width = input_x_width + pad
+
+		if pad > 0:
+			padded_x = self.padding_1d(x, pad)
+		else:
+			padded_x = x
 
 		# to skip (dilation - 1) elements
 		padded_x = F.reshape(padded_x, (batchsize, self.in_channels, -1, self.dilation))
@@ -316,10 +319,16 @@ class WaveNet():
 		kernel_width = params.residual_conv_kernel_width
 		n_in = params.causal_conv_channels[-1]
 
+		residual_conv_dilations = []
+		dilation = 1
+		for _ in params.residual_conv_channels:
+			residual_conv_dilations.append(dilation)
+			dilation *= 2
+
 		for stack in xrange(params.residual_num_blocks):
 			for i in xrange(len(params.residual_conv_channels)):
 				n_out = params.residual_conv_channels[i]
-				dilation = params.residual_conv_dilations[i]
+				dilation = residual_conv_dilations[i]
 				# kernel
 				if dilation == 1:
 					ksize = (1, kernel_width)
@@ -374,7 +383,7 @@ class WaveNet():
 		channels += zip(params.softmax_conv_channels[:-1], params.softmax_conv_channels[1:])
 
 		for i, (n_in, n_out) in enumerate(channels):
-			initial_w = np.random.normal(scale=math.sqrt(2.0 / (kernel_width * kernel_width * n_out)), size=(n_out, n_in, 1, 1))
+			initial_w = np.random.normal(scale=math.sqrt(2.0 / n_out), size=(n_out, n_in, 1, 1))
 
 			conv_layer = L.Convolution2D(n_in, n_out, ksize=1, stride=1, nobias=nobias, initialW=initial_w)
 			if params.gpu_enabled:
@@ -432,8 +441,26 @@ class WaveNet():
 	def gpu_enabled(self):
 		return self.params.gpu_enabled
 
-	def forward_one_step(self, padded_x_batch_data, softmax=True, return_numpy=False):
-		x_batch = Variable(padded_x_batch_data)
+	def slice_1d(self, x, cut=0):
+		return CausalSlice1d(cut)(x)
+
+	def padding_1d(self, x, pad=0):
+		return CausalPadding1d(pad)(x)
+
+	def to_variable(self, x):
+		if isinstance(x, Variable) == False:
+			x = Variable(x)
+			if self.gpu_enabled:
+				x.to_gpu()
+		return x
+
+	def get_batchsize(self, x):
+		if isinstance(x, Variable):
+			return x.data.shape[0]
+		return x.shape[0]
+
+	def forward_one_step(self, x_batch_data, softmax=True, return_numpy=False):
+		x_batch = Variable(x_batch_data)
 		if self.gpu_enabled:
 			x_batch.to_gpu()
 		causal_output = self.forward_causal_block(x_batch)
@@ -446,7 +473,7 @@ class WaveNet():
 		return softmax_output
 
 	def forward_causal_block(self, x_batch):
-		input_batch = x_batch
+		input_batch = self.to_variable(x_batch)
 		for layer in self.causal_conv_layers:
 			output = layer(input_batch)
 			input_batch = output
@@ -456,7 +483,7 @@ class WaveNet():
 		# print "x_batch:"
 		# print x_batch.data
 		sum_skip_connections = 0
-		input_batch = x_batch
+		input_batch = self.to_variable(x_batch)
 		for layer in self.residual_conv_layers:
 			output, z = layer(input_batch)
 			sum_skip_connections += z
@@ -465,10 +492,10 @@ class WaveNet():
 		return output, sum_skip_connections
 
 	def forward_softmax_block(self, x_batch, softmax=True):
-		batchsize = x_batch.data.shape[0]
-		input_batch = x_batch
+		input_batch = self.to_variable(x_batch)
+		batchsize = self.get_batchsize(x_batch)
 		for layer in self.softmax_conv_layers:
-			input_batch = F.elu(input_batch)
+			input_batch = F.relu(input_batch)
 			output = layer(input_batch)
 			input_batch = output
 		if softmax:
@@ -480,9 +507,8 @@ class WaveNet():
 	def loss(self, padded_input_batch_data, target_signal_batch_data):
 		batchsize = padded_input_batch_data.shape[0]
 		width = target_signal_batch_data.shape[1]
-
 		raw_output = self.forward_one_step(padded_input_batch_data, softmax=False)
-
+		raw_output = self.forward_one_step(padded_input_batch_data[:,:,:,-9:], softmax=False)
 
 		# remove padding
 		cut = padded_input_batch_data.shape[3] - width
@@ -496,9 +522,12 @@ class WaveNet():
 		raw_output = F.transpose(raw_output, (0, 3, 2, 1))
 		raw_output = F.reshape(raw_output, (batchsize * width, -1))
 
+
 		target_id_batch = Variable(target_signal_batch_data)
 		if self.gpu_enabled:
 			target_id_batch.to_gpu()
+
+		raise Exception()
 
 		loss = F.sum(F.softmax_cross_entropy(raw_output, target_id_batch))
 
@@ -530,7 +559,6 @@ class WaveNet():
 	def load(self, dir="./"):
 		def load_hdf5(filename, layer):
 			if os.path.isfile(filename):
-				print "loading",  filename
 				serializers.load_hdf5(filename, layer)
 			
 		for i, layer in enumerate(self.causal_conv_layers):

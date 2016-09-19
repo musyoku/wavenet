@@ -16,20 +16,29 @@ if os.path.isfile(filename):
 	wavenet = WaveNet(params)
 else:
 	params = Params()
-	params.gpu_enabled = True if args.gpu_enabled == 1 else False
-	params.audio_channels = 3
+	params.audio_channels = 6
+
+	params.causal_conv_no_bias = True
+	params.causal_conv_kernel_width = 2
+	params.causal_conv_channels = [4]
+
+	params.residual_conv_dilation_no_bias = True
+	params.residual_conv_projection_no_bias = True
 	params.residual_conv_kernel_width = 2
-	params.residual_conv_channels = [3]
-	params.softmax_conv_channels = [3]
-	params.causal_conv_channels = [3, 3, 3]
-	params.residual_conv_dilations = [2]
-	params.causal_conv_apply_batchnorm = False
-	params.residual_conv_apply_batchnorm = False
-	params.softmax_conv_apply_batchnorm = False
+	params.residual_conv_channels = [3, 3, 3]
+
+	params.softmax_conv_no_bias = False
+	params.softmax_conv_channels = [4, 6]
+
+	params.learning_rate = 0.01
+	params.gradient_momentum = 0.9
+	params.weight_decay = 0.00001
+	params.gradient_clipping = 10.0
 
 	wavenet = WaveNet(params)
 	f = open(filename, "w")
 	json.dump(params.to_dict(), f, indent=4)
 
+params.gpu_enabled = True if args.gpu_enabled == 1 else False
 params.dump()
 wavenet.load(args.model_dir)

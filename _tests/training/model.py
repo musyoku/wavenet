@@ -25,10 +25,10 @@ else:
 	params.residual_conv_dilation_no_bias = True
 	params.residual_conv_projection_no_bias = True
 	params.residual_conv_kernel_width = 2
-	params.residual_conv_channels = [3, 3, 3]
+	params.residual_conv_channels = [3, 3]
+	params.residual_num_blocks = 1
 
 	params.softmax_conv_no_bias = False
-	params.softmax_conv_kernel_width = 2
 	params.softmax_conv_channels = [4, 6]
 
 	params.learning_rate = 0.01

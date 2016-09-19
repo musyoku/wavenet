@@ -18,16 +18,23 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=10,
+		batch_size=1,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
 	):
 	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.audio_channels)
 
+	residual_conv_dilations = []
+	dilation = 1
+	for _ in params.residual_conv_channels:
+		residual_conv_dilations.append(dilation)
+		dilation *= 2
+	max_dilation = max(residual_conv_dilations)
+
 	# receptive field width for the top residual dilated conv layer
 	# receptive field width is determined automatically when determining the depth of the residual dilated conv block
-	receptive_steps = params.residual_conv_dilations[-1] * (params.residual_conv_kernel_width - 1)
+	receptive_steps = max_dilation * params.residual_conv_kernel_width
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
 
 
@@ -39,9 +46,8 @@ def train_audio(
 	print "	learning_rate:", params.learning_rate
 
 	# compute required input width
-	max_dilation = max(params.residual_conv_dilations)
 	target_width = receptive_steps
-	padded_input_width = receptive_steps + max_dilation * (params.residual_conv_kernel_width - 1)
+	padded_input_width = target_width + max_dilation * (params.residual_conv_kernel_width - 1) + len(params.causal_conv_channels)
 
 	num_updates = 0
 	total_updates = 0
