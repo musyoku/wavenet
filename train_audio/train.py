@@ -18,7 +18,7 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=1,
+		batch_size=2,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
@@ -45,9 +45,11 @@ def train_audio(
 	print "	batch_size:", batch_size
 	print "	learning_rate:", params.learning_rate
 
-	# compute required input width
 	target_width = receptive_steps
-	padded_input_width = target_width + max_dilation * (params.residual_conv_kernel_width - 1) + len(params.causal_conv_channels)
+	# compute required input width
+	padded_input_width = target_width + max_dilation * (params.residual_conv_kernel_width - 1)
+	# padding for causal conv block
+	padded_input_width += len(params.causal_conv_channels)
 
 	num_updates = 0
 	total_updates = 0
@@ -71,8 +73,18 @@ def train_audio(
 			# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=audio channels), HEIGHT(=1), WIDTH(=receptive field))
 			padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.audio_channels)
 
+			# compute output
+			output = wavenet.forward_causal_block(padded_x_batch)
+			# remove causal padding
+			output = wavenet.slice_1d(output, len(params.causal_conv_channels))
+			output, sum_skip_connections = wavenet.forward_residual_block(output)
+			# remove padding
+			sum_skip_connections = wavenet.slice_1d(sum_skip_connections, output.data.shape[3] - target_width)
+			# do not apply F.softmax
+			output = wavenet.forward_softmax_block(sum_skip_connections, softmax=False)
+			# compute cross entroy
+			loss = wavenet.cross_entropy(sum_skip_connections, target_batch)
 			# update weights
-			loss = wavenet.loss(padded_x_batch, target_batch)
 			wavenet.backprop(loss)
 
 			# logging

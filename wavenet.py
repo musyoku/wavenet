@@ -203,19 +203,16 @@ class DilatedConvolution1D(L.Convolution2D):
 		batchsize = x.data.shape[0]
 		input_x_width = x.data.shape[3]
 
-		print x.data[:,0,:,:]
-
 		if self.dilation == 1:
 			# perform normal convolution
 			padded_x = self.padding_1d(x, self.kernel_width - 1)
-			out =  super(DilatedConvolution1D, self).__call__(padded_x)
-			return out
+			return super(DilatedConvolution1D, self).__call__(padded_x)
 
 		# padding
 		pad = 0
 		padded_x_width = input_x_width
 
-		## check if output width > input width
+		## check if output width < input width
 		div = input_x_width // self.dilation
 		output_x_width = (div - 1) // (self.kernel_width - 1) * self.dilation
 		if output_x_width < input_x_width:
@@ -480,8 +477,6 @@ class WaveNet():
 		return output
 
 	def forward_residual_block(self, x_batch):
-		# print "x_batch:"
-		# print x_batch.data
 		sum_skip_connections = 0
 		input_batch = self.to_variable(x_batch)
 		for layer in self.residual_conv_layers:
@@ -502,34 +497,29 @@ class WaveNet():
 			output = F.softmax(output)
 		return output
 
-	# padded_input_batch_data: 			(batchsize, channels, 1, time_step)
-	# target_signal_batch_data.ndim:	(batchsize, time_step)
-	def loss(self, padded_input_batch_data, target_signal_batch_data):
-		batchsize = padded_input_batch_data.shape[0]
-		width = target_signal_batch_data.shape[1]
-		raw_output = self.forward_one_step(padded_input_batch_data, softmax=False)
-		raw_output = self.forward_one_step(padded_input_batch_data[:,:,:,-9:], softmax=False)
+	# raw_network_output.ndim:	(batchsize, channels, 1, time_step)
+	# target_signal_data.ndim:	(batchsize, time_step)
+	def cross_entropy(self, raw_network_output, target_signal_data):
+		if isinstance(target_signal_data, Variable):
+			raise Exception("target_signal_data cannot be Variable")
 
-		# remove padding
-		cut = padded_input_batch_data.shape[3] - width
-		if cut > 0:
-			raw_output = CausalSlice1d(cut)(raw_output)
+		raw_network_output = self.to_variable(raw_network_output)
+		target_width = target_signal_data.shape[1]
+		batchsize = raw_network_output.data.shape[0]
+
+		if raw_network_output.data.shape[3] != target_width:
+			raise Exception("raw_network_output.width != target.width")
 
 		# (batchsize * time_step,) <- (batchsize, time_step)
-		target_signal_batch_data = target_signal_batch_data.reshape((-1,))
+		target_signal_data = target_signal_data.reshape((-1,))
+		target_signal = self.to_variable(target_signal_data)
 
 		# (batchsize * time_step, channels) <- (batchsize, channels, 1, time_step)
-		raw_output = F.transpose(raw_output, (0, 3, 2, 1))
-		raw_output = F.reshape(raw_output, (batchsize * width, -1))
+		raw_network_output = F.transpose(raw_network_output, (0, 3, 2, 1))
+		raw_network_output = F.reshape(raw_network_output, (batchsize * target_width, -1))
 
 
-		target_id_batch = Variable(target_signal_batch_data)
-		if self.gpu_enabled:
-			target_id_batch.to_gpu()
-
-		raise Exception()
-
-		loss = F.sum(F.softmax_cross_entropy(raw_output, target_id_batch))
+		loss = F.sum(F.softmax_cross_entropy(raw_network_output, target_signal))
 
 		return loss
 

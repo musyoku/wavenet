@@ -43,7 +43,7 @@ def train_audio():
 					output, sum_skip_connections = wavenet.forward_residual_block(output)
 
 					print "[#2]"
-					output = wavenet.forward_causal_block(padded_onehot_batch[:,:,:,-9:])
+					output = wavenet.forward_causal_block(padded_onehot_batch[:,:,:,-10:])
 					output = wavenet.slice_1d(output, 1)
 					output, sum_skip_connections = wavenet.forward_residual_block(output)
 
