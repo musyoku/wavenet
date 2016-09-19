@@ -18,7 +18,7 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=10,
+		batch_size=16,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
@@ -36,7 +36,11 @@ def train_audio(
 	# receptive field width is determined automatically when determining the depth of the residual dilated conv block
 	receptive_steps = max_dilation * params.residual_conv_kernel_width
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
-
+	target_width = receptive_steps
+	# compute required input width
+	padded_input_width = target_width * 2 - 1
+	# padding for causal conv block
+	padded_input_width += len(params.causal_conv_channels)
 
 	print "training", filename	
 	print "	sampling rate:", sampling_rate, "[Hz]"
@@ -44,12 +48,6 @@ def train_audio(
 	print "	receptive field width:", receptive_steps, "[time step]"
 	print "	batch_size:", batch_size
 	print "	learning_rate:", params.learning_rate
-
-	target_width = receptive_steps
-	# compute required input width
-	padded_input_width = target_width + max_dilation * (params.residual_conv_kernel_width - 1)
-	# padding for causal conv block
-	padded_input_width += len(params.causal_conv_channels)
 
 	num_updates = 0
 	total_updates = 0
@@ -83,7 +81,7 @@ def train_audio(
 			# do not apply F.softmax
 			output = wavenet.forward_softmax_block(sum_skip_connections, softmax=False)
 			# compute cross entroy
-			loss = wavenet.cross_entropy(sum_skip_connections, target_batch)
+			loss = wavenet.cross_entropy(output, target_batch)
 			# update weights
 			wavenet.backprop(loss)
 
@@ -102,7 +100,7 @@ def train_audio(
 	wavenet.save(dir=args.model_dir)
 
 def main():
-	train_audio("./wav_test/ring.wav")
+	train_audio("./wav_test/famima.wav")
 
 if __name__ == '__main__':
 	main()
