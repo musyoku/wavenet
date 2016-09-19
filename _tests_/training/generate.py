@@ -23,12 +23,12 @@ def generate_audio():
 		padded_quantized_x_batch = generated_quantized_audio[-padded_input_width:].reshape((1, -1))
 
 		# convert to image
-		padded_x_batch = data.onehot_pixel_image(padded_quantized_x_batch, quantized_channels=params.audio_channels)
+		padded_x_batch = data.onehot_pixel_image(padded_quantized_x_batch, quantized_channels=params.quantization_steps)
 
 		# generate next signal
 		softmax = wavenet.forward_one_step(padded_x_batch, softmax=True, return_numpy=True)
 		softmax = softmax[0, :, 0, -1]
-		generated_quantized_signal = np.random.choice(np.arange(params.audio_channels), p=softmax)
+		generated_quantized_signal = np.random.choice(np.arange(params.quantization_steps), p=softmax)
 		generated_quantized_audio = np.append(generated_quantized_audio, [generated_quantized_signal], axis=0)
 
 	print generated_quantized_audio

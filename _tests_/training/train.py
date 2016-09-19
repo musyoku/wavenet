@@ -32,7 +32,7 @@ def train_audio():
 				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
 					padded_signal_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
 					
-					padded_onehot_batch = data.onehot_pixel_image(padded_signal_batch, quantized_channels=params.audio_channels)
+					padded_onehot_batch = data.onehot_pixel_image(padded_signal_batch, quantized_channels=params.quantization_steps)
 
 					# print padded_signal_batch[0, -1]
 					# print padded_onehot_batch[0, :, 0, -1]

@@ -16,7 +16,7 @@ if os.path.isfile(filename):
 	wavenet = WaveNet(params)
 else:
 	params = Params()
-	params.audio_channels = 6
+	params.quantization_steps = 6
 
 	params.causal_conv_no_bias = True
 	params.causal_conv_kernel_width = 2
