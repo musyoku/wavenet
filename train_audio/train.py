@@ -18,12 +18,12 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=2,
+		batch_size=10,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
 	):
-	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.audio_channels)
+	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.quantization_steps)
 
 	residual_conv_dilations = []
 	dilation = 1
@@ -69,9 +69,9 @@ def train_audio(
 			# create batch
 			padded_input_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
 
-			# convert to 1xW image whose channel is equal to quantized audio_channels
+			# convert to 1xW image whose #channels is equal to the quantization steps of audio
 			# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=audio channels), HEIGHT(=1), WIDTH(=receptive field))
-			padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.audio_channels)
+			padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.quantization_steps)
 
 			# compute output
 			output = wavenet.forward_causal_block(padded_x_batch)
