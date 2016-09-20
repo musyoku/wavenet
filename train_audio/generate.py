@@ -60,7 +60,7 @@ def generate_audio(sampling_rate=48000, generate_sec=1, remove_silence_frames=Fa
 	data.save_audio_file(filename, generated_quantized_audio, params.quantization_steps, format="16bit_pcm", sampling_rate=sampling_rate)
 
 def main():
-	generate_audio(generate_sec=args.generate_sec, sampling_rate=args.sampling_rate)
+	generate_audio(generate_sec=args.generate_sec, sampling_rate=params.sampling_rate)
 
 if __name__ == '__main__':
 	main()
