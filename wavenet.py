@@ -416,6 +416,16 @@ class WaveNet():
 			opt.add_hook(GradientClipping(params.gradient_clipping))
 			self.softmax_conv_optimizers.append(opt)
 
+	def update_laerning_rate(self, lr):
+		for opt in self.causal_conv_optimizers:
+			opt.alpha = lr
+
+		for opt in self.residual_conv_optimizers:
+			opt.alpha = lr
+			
+		for opt in self.softmax_conv_optimizers:
+			opt.alpha = lr
+
 	def zero_grads(self):
 		for opt in self.causal_conv_optimizers:
 			opt.zero_grads()
