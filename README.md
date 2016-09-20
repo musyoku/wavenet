@@ -27,7 +27,7 @@ Donwsample your .wav to 16KHz / 8KHz to speed up convergence.
 
 ### Create data directory
 
-Add all .wav files to /train_audio/wav dir
+Add all .wav files to /train_audio/wav
 
 ### Hyperparameters
 
