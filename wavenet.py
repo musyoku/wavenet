@@ -43,7 +43,6 @@ class Params():
 		# 
 		# the more the deeper
 		self.residual_num_blocks = 10
-		self.residual_block_dropout_proba = 0.0
 
 		self.softmax_conv_no_bias = False
 		# [<- input   output ->]
@@ -485,16 +484,10 @@ class WaveNet():
 		sum_skip_connections = 0
 		input_batch = self.to_variable(x_batch)
 		for i, block in enumerate(self.residual_blocks):
-			if i == 0:
-				dropout_proba = 0
-			else:
-				dropout_proba = params.residual_block_dropout_proba
-			proba = random.random()
-			if proba > dropout_proba:
-				for layer in block:
-					output, z = layer(input_batch)
-					sum_skip_connections += z
-					input_batch = output
+			for layer in block:
+				output, z = layer(input_batch)
+				sum_skip_connections += z
+				input_batch = output
 
 		return output, sum_skip_connections
 
