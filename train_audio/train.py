@@ -22,7 +22,8 @@ def train_audio(
 		save_per_update=500,
 		log_per_update=200,
 		epochs=100,
-		initial_learning_rate=0.001
+		initial_learning_rate=0.001,
+		final_learning_rate=0.000001
 	):
 
 	# set learning rate
@@ -114,7 +115,7 @@ def train_audio(
 		if prev_averate_loss is None:
 			pass
 		else:
-			if average_loss > prev_averate_loss:
+			if average_loss > prev_averate_loss and current_learning_rate > final_learning_rate:
 				current_learning_rate *= 0.1
 				wavenet.update_laerning_rate(current_learning_rate)
 				print "learning rate annealed to", current_learning_rate
@@ -124,9 +125,10 @@ def train_audio(
 	return current_learning_rate
 
 def main():
+	final_learning_rate = 0.000001
 	np.random.seed(args.seed)
 	learning_rate = params.learning_rate
-	learning_rate = train_audio("./wav_test/famima.wav", initial_learning_rate=learning_rate)
+	learning_rate = train_audio("./wav_test/famima.wav", initial_learning_rate=learning_rate, final_learning_rate=final_learning_rate)
 
 if __name__ == '__main__':
 	main()

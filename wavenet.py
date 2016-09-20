@@ -302,7 +302,7 @@ class WaveNet():
 
 		for layer_index, (n_in, n_out) in enumerate(channels):
 			attributes = {}
-			std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
+			std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
 			initial_w = np.random.normal(scale=std, size=(n_out, n_in, 1, filter_width))
 
 			layer = DilatedConvolution1D(n_in, n_out, ksize, 
@@ -342,7 +342,7 @@ class WaveNet():
 				attributes = {}
 
 				# weight for filter
-				std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
+				std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
 				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# filter
@@ -353,7 +353,7 @@ class WaveNet():
 				attributes["wf"] = dilated_conv_layer 
 
 				# weight for gate
-				std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
+				std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
 				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# gate
