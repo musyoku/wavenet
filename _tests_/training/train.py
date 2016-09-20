@@ -26,22 +26,24 @@ def train_audio():
 	quantized_signal = np.repeat(np.arange(0, 10), 100, axis=0)
 	print quantized_signal
 
-	for rep in xrange(30):
-		for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
-			for shift in xrange(padded_input_width):
-				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
-					padded_signal_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
-					
-					padded_onehot_batch = data.onehot_pixel_image(padded_signal_batch, quantized_channels=params.quantization_steps)
+	for epoch in xrange(30):
+		for step in xrange(100):
+			padded_signal_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
+			
+			padded_onehot_batch = data.onehot_pixel_image(padded_signal_batch, quantized_channels=params.quantization_steps)
 
-					# print padded_signal_batch[0, -1]
-					# print padded_onehot_batch[0, :, 0, -1]
-					# print target_batch[0, -1]
+			# print padded_signal_batch[0, -1]
+			# print padded_onehot_batch[0, :, 0, -1]
+			# print target_batch[0, -1]
 
-					loss = wavenet.loss(padded_onehot_batch, target_batch)
-					wavenet.backprop(loss)
+			loss = wavenet.loss(padded_onehot_batch, target_batch)
+			wavenet.backprop(loss)
 
-		print float(loss.data)
+		loss = float(loss.data)
+		if loss > 0.3:
+			print padded_signal_batch
+			print target_batch
+
 
 
 def main():

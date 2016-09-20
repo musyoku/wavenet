@@ -68,7 +68,7 @@ def train_audio(
 			padded_input_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
 
 			# convert to 1xW image whose #channels is equal to the quantization steps of audio
-			# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=audio channels), HEIGHT(=1), WIDTH(=receptive field))
+			# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=quantization_steps), HEIGHT(=1), WIDTH(=padded_input_width))
 			padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.quantization_steps)
 
 			# compute output

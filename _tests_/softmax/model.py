@@ -18,7 +18,7 @@ else:
 	params = Params()
 	params.quantization_steps = 6
 
-	params.causal_conv_no_bias = True
+	params.causal_conv_no_bias = False
 	params.causal_conv_kernel_width = 2
 	params.causal_conv_channels = [4]
 
@@ -30,7 +30,7 @@ else:
 	params.softmax_conv_no_bias = False
 	params.softmax_conv_channels = [4, 6]
 
-	params.learning_rate = 0.01
+	params.learning_rate = 0.1
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0

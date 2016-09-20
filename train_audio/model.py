@@ -11,6 +11,7 @@ except:
 	pass
 filename = args.params_dir + "/{}".format(args.params_filename)
 if os.path.isfile(filename):
+	print "loading", filename
 	f = open(filename)
 	try:
 		dict = json.load(f)
@@ -27,22 +28,22 @@ if os.path.isfile(filename):
 else:
 	params = Params()
 	params.quantization_steps = 256
-	params.sampling_rate = 16000
+	params.sampling_rate = 8000
 
 	params.causal_conv_no_bias = False
-	params.causal_conv_kernel_width = 1
-	params.causal_conv_channels = [32]
+	params.causal_conv_kernel_width = 2
+	params.causal_conv_channels = [128]
 
 	params.residual_conv_dilation_no_bias = True
 	params.residual_conv_projection_no_bias = True
 	params.residual_conv_kernel_width = 2
-	params.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32, 32]
+	params.residual_conv_channels = [32, 32, 32, 32, 32, 32, 32]
 	params.residual_num_blocks = 3
 
 	params.softmax_conv_no_bias = False
-	params.softmax_conv_channels = [32, 128, 256]
+	params.softmax_conv_channels = [128, 256]
 
-	params.learning_rate = 0.001
+	params.learning_rate = 0.01
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.000001
 	params.gradient_clipping = 10.0

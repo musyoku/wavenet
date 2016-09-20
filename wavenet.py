@@ -9,7 +9,8 @@ from chainer import links as L
 
 class Params():
 	def __init__(self, dict=None):
-		self.audio_channels = 256
+		self.quantization_steps = 256
+		self.sampling_rate = 8000
 
 		# entire architecture
 		# causal conv stack -> residual dilated conv stack -> skip-connections conv -> softmax
@@ -80,8 +81,8 @@ class Params():
 				raise Exception("invalid parameter '{}'".format(attr))
 		if self.causal_conv_channels[-1] != self.softmax_conv_channels[0]:
 			raise Exception("causal_conv_channels[-1] != softmax_conv_channels[0]")
-		if self.audio_channels != self.softmax_conv_channels[-1]:
-			raise Exception("audio_channels != softmax_conv_channels[-1]")
+		if self.quantization_steps != self.softmax_conv_channels[-1]:
+			raise Exception("quantization_steps != softmax_conv_channels[-1]")
 
 def sum_sqnorm(arr):
 	sq_sum = collections.defaultdict(float)
@@ -251,7 +252,6 @@ class DilatedConvolution1D(L.Convolution2D):
 class ResidualConvLayer(chainer.Chain):
 	def __init__(self, **layers):
 		super(ResidualConvLayer, self).__init__(**layers)
-		self.dilation = 1
 
 	@property
 	def xp(self):
@@ -293,7 +293,7 @@ class WaveNet():
 		kernel_width = params.causal_conv_kernel_width
 		ksize = (1, kernel_width)
 
-		channels = [(params.audio_channels, params.causal_conv_channels[0])]
+		channels = [(params.quantization_steps, params.causal_conv_channels[0])]
 		channels += zip(params.causal_conv_channels[:-1], params.causal_conv_channels[1:])
 
 		for i, (n_in, n_out) in enumerate(channels):
@@ -392,7 +392,7 @@ class WaveNet():
 		
 		self.causal_conv_optimizers = []
 		for layer in self.causal_conv_layers:
-			opt = optimizers.NesterovAG(lr=params.learning_rate, momentum=params.gradient_momentum)
+			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
 			opt.setup(layer)
 			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
 			opt.add_hook(GradientClipping(params.gradient_clipping))
@@ -400,7 +400,7 @@ class WaveNet():
 		
 		self.residual_conv_optimizers = []
 		for layer in self.residual_conv_layers:
-			opt = optimizers.NesterovAG(lr=params.learning_rate, momentum=params.gradient_momentum)
+			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
 			opt.setup(layer)
 			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
 			opt.add_hook(GradientClipping(params.gradient_clipping))
@@ -408,7 +408,7 @@ class WaveNet():
 		
 		self.softmax_conv_optimizers = []
 		for layer in self.softmax_conv_layers:
-			opt = optimizers.NesterovAG(lr=params.learning_rate, momentum=params.gradient_momentum)
+			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
 			opt.setup(layer)
 			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
 			opt.add_hook(GradientClipping(params.gradient_clipping))
@@ -490,7 +490,7 @@ class WaveNet():
 		input_batch = self.to_variable(x_batch)
 		batchsize = self.get_batchsize(x_batch)
 		for layer in self.softmax_conv_layers:
-			input_batch = F.relu(input_batch)
+			input_batch = F.elu(input_batch)
 			output = layer(input_batch)
 			input_batch = output
 		if softmax:
@@ -549,6 +549,7 @@ class WaveNet():
 	def load(self, dir="./"):
 		def load_hdf5(filename, layer):
 			if os.path.isfile(filename):
+				print "loading", filename
 				serializers.load_hdf5(filename, layer)
 			
 		for i, layer in enumerate(self.causal_conv_layers):
