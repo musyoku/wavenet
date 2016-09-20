@@ -19,12 +19,12 @@ else:
 	params.quantization_steps = 6
 
 	params.causal_conv_no_bias = True
-	params.causal_conv_kernel_width = 2
+	params.causal_conv_filter_width = 2
 	params.causal_conv_channels = [4]
 
 	params.residual_conv_dilation_no_bias = True
 	params.residual_conv_projection_no_bias = True
-	params.residual_conv_kernel_width = 2
+	params.residual_conv_filter_width = 2
 	params.residual_conv_channels = [3, 3]
 	params.residual_num_blocks = 1
 

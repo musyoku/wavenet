@@ -18,7 +18,7 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=16,
+		batch_size=32,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
@@ -26,21 +26,14 @@ def train_audio(
 	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.quantization_steps)
 
 	residual_conv_dilations = []
-	dilation = 1
-	for _ in params.residual_conv_channels:
-		residual_conv_dilations.append(dilation)
-		dilation *= 2
-	max_dilation = max(residual_conv_dilations)
+	max_dilation = params.residual_conv_filter_width ** len(params.residual_conv_channels)
 
-	# receptive field width for the top residual dilated conv layer
-	# receptive field width is determined automatically when determining the depth of the residual dilated conv block
-	receptive_steps = max_dilation * params.residual_conv_kernel_width
+	receptive_steps = (max_dilation - 1) * params.residual_num_blocks + 1
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
-	target_width = receptive_steps
-	# compute required input width
-	padded_input_width = target_width * 2 - 1
+	target_width = 1
+	input_width = receptive_steps
 	# padding for causal conv block
-	padded_input_width += len(params.causal_conv_channels)
+	input_width += len(params.causal_conv_channels)
 
 	print "training", filename	
 	print "	sampling rate:", sampling_rate, "[Hz]"
@@ -54,22 +47,22 @@ def train_audio(
 	sum_loss = 0
 	start_time = time.time()
 
-	if padded_input_width * batch_size + 1 > quantized_signal.size:
+	if input_width * batch_size + 1 > quantized_signal.size:
 		raise Exception("batch_size too large")
 
 	# pad with zero
-	quantized_signal = np.insert(quantized_signal, 0, np.zeros((padded_input_width,), dtype=np.int32), axis=0)
+	quantized_signal = np.insert(quantized_signal, 0, np.zeros((input_width,), dtype=np.int32), axis=0)
 
-	max_batches = int((quantized_signal.size - padded_input_width) / float(batch_size))
+	max_batches = int((quantized_signal.size - input_width) / float(batch_size))
 
 	for epoch in xrange(1, epochs + 1):
 		print "epoch: {}/{}".format(epoch, epochs)
 		for batch_index in xrange(1, max_batches + 1):
 			# create batch
-			padded_input_batch, target_batch = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
+			padded_input_batch, target_batch = create_batch(quantized_signal, batch_size, input_width, target_width)
 
 			# convert to 1xW image whose #channels is equal to the quantization steps of audio
-			# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=quantization_steps), HEIGHT(=1), WIDTH(=padded_input_width))
+			# padded_x_batch.shape = (BATCHSIZE, CHANNELS(=quantization_steps), HEIGHT(=1), WIDTH(=input_width))
 			padded_x_batch = data.onehot_pixel_image(padded_input_batch, quantized_channels=params.quantization_steps)
 
 			# compute output

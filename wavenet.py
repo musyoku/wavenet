@@ -17,7 +17,7 @@ class Params():
 
 		self.causal_conv_no_bias = False
 		# Note: kernel_height is fixed to 1
-		self.causal_conv_kernel_width = 2
+		self.causal_conv_filter_width = 2
 		# [<- input   output ->]
 		# audio input -> conv -> (128,) -> residual dilated conv stack
 		# to add more layers, [128, 128, 128, ...]
@@ -26,7 +26,7 @@ class Params():
 		self.residual_conv_dilation_no_bias = False
 		self.residual_conv_projection_no_bias = False
 		# Note: kernel_height is fixed to 1
-		self.residual_conv_kernel_width = 2
+		self.residual_conv_filter_width = 2
 		# [<- input   output ->]
 		# causal conv output (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> conv -> (32,) -> 1x1 conv -> (128,) -> ...
 		# dilation will be determined automatically by the length of residual_conv_channels
@@ -41,8 +41,9 @@ class Params():
 		#                           |          |            |          |            |          |
 		#                           +----------+------------+----------+------------+----------+-> skip connection -> softmax
 		# 
-		# the more the deeper
-		self.residual_num_blocks = 10
+
+		# deeper network and wider receptive field
+		self.residual_num_blocks = 2
 
 		self.softmax_conv_no_bias = False
 		# [<- input   output ->]
@@ -172,16 +173,18 @@ class CausalSlice1d(function.Function):
 
 class DilatedConvolution1D(L.Convolution2D):
 
-	def __init__(self, in_channels, out_channels, ksize, kernel_width=2, dilation=1, stride=1, nobias=False, initialW=None):
-		self.kernel_width = kernel_width
+	def __init__(self, in_channels, out_channels, ksize, filter_width=2, layer_index=0, stride=1, nobias=False, initialW=None):
 		self.in_channels = in_channels
 		self.out_channels = out_channels
-		self.dilation = dilation
+		self.filter_width = filter_width
+		self.dilation = filter_width ** layer_index
 		super(DilatedConvolution1D, self).__init__(in_channels, out_channels, ksize=ksize, stride=stride, initialW=initialW, nobias=nobias)
 
+	# [1, 2, 3, 4] -> [0, 0, 0, 1, 2, 3, 4]
 	def padding_1d(self, x, pad):
 		return CausalPadding1d(pad)(x)
 
+	# [1, 2, 3, 4] -> [3, 4]
 	def slice_1d(self, x, cut):
 		return CausalSlice1d(cut)(x)
 
@@ -198,7 +201,7 @@ class DilatedConvolution1D(L.Convolution2D):
 			x[0, :, 1, 0] = x_batch_data[0, :, 0, -1]
 
 		W = self.W.data
-		return W.reshape(1, self.out_channels, self.in_channels * self.kernel_width).dot(x.reshape(1, self.in_channels * self.kernel_width, 1))
+		return W.reshape(1, self.out_channels, self.in_channels * self.filter_width).dot(x.reshape(1, self.in_channels * self.filter_width, 1))
 
 	def __call__(self, x):
 		batchsize = x.data.shape[0]
@@ -206,24 +209,23 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		if self.dilation == 1:
 			# perform normal convolution
-			padded_x = self.padding_1d(x, self.kernel_width - 1)
+			padded_x = self.padding_1d(x, self.filter_width - 1)
 			return super(DilatedConvolution1D, self).__call__(padded_x)
 
 		# padding
 		pad = 0
 		padded_x_width = input_x_width
 
-		## check if output width < input width
-		div = input_x_width // self.dilation
-		output_x_width = (div - 1) // (self.kernel_width - 1) * self.dilation
-		if output_x_width < input_x_width:
-			pad = int(math.ceil((input_x_width - output_x_width) / float(self.dilation))) * self.dilation
-			padded_x_width = input_x_width + pad
-
 		## check if we can reshape
 		mod = padded_x_width % self.dilation
 		if mod > 0:
 			pad += self.dilation - mod
+			padded_x_width = input_x_width + pad
+
+		## check if height < filter width
+		height = padded_x_width / self.dilation
+		if height < self.filter_width:
+			pad += (self.filter_width - height) * self.dilation
 			padded_x_width = input_x_width + pad
 
 		if pad > 0:
@@ -233,7 +235,7 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		# to skip (dilation - 1) elements
 		padded_x = F.reshape(padded_x, (batchsize, self.in_channels, -1, self.dilation))
-		# we can remove transpose operation when residual_conv_kernel_width is set to the kernel's height
+		# we can remove transpose operation when residual_conv_filter_width is set to the kernel's height
 		# padded_x = F.transpose(padded_x, (0, 1, 3, 2))
 
 		# convolution
@@ -242,10 +244,12 @@ class DilatedConvolution1D(L.Convolution2D):
 		# reshape to the original shape
 		out = F.reshape(out, (batchsize, self.out_channels, 1, -1))
 
-		# remove padded elements
+		# remove padded elements / add missing elements
 		cut = out.data.shape[3] - input_x_width
 		if cut > 0:
 			out = self.slice_1d(out, cut)
+		elif cut < 0:
+			out = self.padding_1d(out, -cut)
 
 		return out
 
@@ -290,20 +294,20 @@ class WaveNet():
 		# stack causal blocks
 		self.causal_conv_layers = []
 		nobias = params.causal_conv_no_bias
-		kernel_width = params.causal_conv_kernel_width
-		ksize = (1, kernel_width)
+		filter_width = params.causal_conv_filter_width
+		ksize = (1, filter_width)
 
 		channels = [(params.quantization_steps, params.causal_conv_channels[0])]
 		channels += zip(params.causal_conv_channels[:-1], params.causal_conv_channels[1:])
 
-		for i, (n_in, n_out) in enumerate(channels):
+		for layer_index, (n_in, n_out) in enumerate(channels):
 			attributes = {}
-			std = math.sqrt(2.0 / (kernel_width * kernel_width * n_out))
-			initial_w = np.random.normal(scale=std, size=(n_out, n_in, 1, kernel_width))
+			std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
+			initial_w = np.random.normal(scale=std, size=(n_out, n_in, 1, filter_width))
 
 			layer = DilatedConvolution1D(n_in, n_out, ksize, 
-				kernel_width=kernel_width, 
-				dilation=1, 
+				filter_width=filter_width, 
+				layer_index=layer_index, 
 				stride=1, nobias=nobias, initialW=initial_w)
 			if params.gpu_enabled:
 				layer.to_gpu()
@@ -313,55 +317,50 @@ class WaveNet():
 		self.residual_blocks = []
 		nobias_dilation = params.residual_conv_dilation_no_bias
 		nobias_projection = params.residual_conv_projection_no_bias
-		kernel_width = params.residual_conv_kernel_width
+		filter_width = params.residual_conv_filter_width
 		n_in = params.causal_conv_channels[-1]
 
 		residual_conv_dilations = []
 		dilation = 1
 		for _ in params.residual_conv_channels:
 			residual_conv_dilations.append(dilation)
-			dilation *= 2
+			dilation *= filter_width
 
 		for stack in xrange(params.residual_num_blocks):
 			residual_conv_layers = []
-			for i in xrange(len(params.residual_conv_channels)):
-				n_out = params.residual_conv_channels[i]
-				dilation = residual_conv_dilations[i]
-				# kernel
-				if dilation == 1:
-					ksize = (1, kernel_width)
-					shape_w = (n_out, n_in, 1, kernel_width)
+			for layer_index in xrange(len(params.residual_conv_channels)):
+				n_out = params.residual_conv_channels[layer_index]
+				# filter
+				if layer_index == 0:
+					ksize = (1, filter_width)
+					shape_w = (n_out, n_in, 1, filter_width)
 				else:
-					# set kernel_width to kernel's height to remove transpose operation in DilatedConvolution1D
-					ksize = (kernel_width, 1)
-					shape_w = (n_out, n_in, kernel_width, 1)
+					# set filter_width to filter's height to remove transpose operation in DilatedConvolution1D
+					ksize = (filter_width, 1)
+					shape_w = (n_out, n_in, filter_width, 1)
 
 				attributes = {}
 
 				# weight for filter
-				std = math.sqrt(2.0 / (kernel_width * kernel_width * n_out))
+				std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
 				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# filter
 				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
-					kernel_width=kernel_width,
-					dilation=dilation,
+					filter_width=filter_width,
+					layer_index=layer_index,
 					stride=1, nobias=nobias_dilation, initialW=initial_w)
-				dilated_conv_layer.kernel_width = kernel_width
-				dilated_conv_layer.dilation = dilation
 				attributes["wf"] = dilated_conv_layer 
 
 				# weight for gate
-				std = math.sqrt(2.0 / (kernel_width * kernel_width * n_out))
+				std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
 				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# gate
 				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
-					kernel_width=kernel_width, 
-					dilation=dilation,
+					filter_width=filter_width, 
+					layer_index=layer_index,
 					stride=1, nobias=nobias_dilation, initialW=initial_w)
-				dilated_conv_layer.dilation = dilation
-				dilated_conv_layer.kernel_width = kernel_width
 				attributes["wg"] = dilated_conv_layer
 
 				# projection

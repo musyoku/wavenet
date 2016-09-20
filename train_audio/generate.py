@@ -21,7 +21,7 @@ def generate_audio(receptive_field_width_ms=25, sampling_rate=48000, generate_du
 		dilation *= 2
 
 	max_dilation = max(residual_conv_dilations)
-	required_receptive_steps = max_dilation * params.residual_conv_kernel_width
+	required_receptive_steps = max_dilation * params.residual_conv_filter_width
 	if receptive_steps < required_receptive_steps:
 		receptive_steps = required_receptive_steps
 	target_width = receptive_steps
