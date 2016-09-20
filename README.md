@@ -41,4 +41,4 @@ run `train.py`
 
 run `generate.py`
 
-Passing `--use_faster_wavenet` will generate audio faster than normal WaveNet.
+Passing `--use_faster_wavenet` will generate audio faster than original WaveNet.
