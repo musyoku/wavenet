@@ -532,9 +532,7 @@ class WaveNet():
 		raw_network_output = F.transpose(raw_network_output, (0, 3, 2, 1))
 		raw_network_output = F.reshape(raw_network_output, (batchsize * target_width, -1))
 
-
 		loss = F.sum(F.softmax_cross_entropy(raw_network_output, target_signal))
-
 		return loss
 
 	def backprop(self, loss):

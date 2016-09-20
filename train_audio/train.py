@@ -112,12 +112,13 @@ def train_audio(
 
 		# anneal learning rate
 		if prev_averate_loss is None:
-			prev_averate_loss = average_loss
+			pass
 		else:
 			if average_loss > prev_averate_loss:
 				current_learning_rate *= 0.1
 				wavenet.update_laerning_rate(current_learning_rate)
 				print "learning rate annealed to", current_learning_rate
+		prev_averate_loss = average_loss
 
 	wavenet.save(dir=args.model_dir)
 	return current_learning_rate
