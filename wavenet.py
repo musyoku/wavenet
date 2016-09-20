@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import math
 import numpy as np
-import chainer, os, collections, six, math
+import chainer, os, collections, six, math, random
 from chainer import cuda, Variable, optimizers, serializers, function, optimizer
 from chainer.utils import type_check
 from chainer import functions as F
@@ -43,6 +43,7 @@ class Params():
 		# 
 		# the more the deeper
 		self.residual_num_blocks = 10
+		self.residual_block_dropout_proba = 0.0
 
 		self.softmax_conv_no_bias = False
 		# [<- input   output ->]
@@ -310,7 +311,7 @@ class WaveNet():
 			self.causal_conv_layers.append(layer)
 
 		# stack residual blocks
-		self.residual_conv_layers = []
+		self.residual_blocks = []
 		nobias_dilation = params.residual_conv_dilation_no_bias
 		nobias_projection = params.residual_conv_projection_no_bias
 		kernel_width = params.residual_conv_kernel_width
@@ -323,6 +324,7 @@ class WaveNet():
 			dilation *= 2
 
 		for stack in xrange(params.residual_num_blocks):
+			residual_conv_layers = []
 			for i in xrange(len(params.residual_conv_channels)):
 				n_out = params.residual_conv_channels[i]
 				dilation = residual_conv_dilations[i]
@@ -370,7 +372,8 @@ class WaveNet():
 				residual_layer = ResidualConvLayer(**attributes)
 				if params.gpu_enabled:
 					residual_layer.to_gpu()
-				self.residual_conv_layers.append(residual_layer)
+				residual_conv_layers.append(residual_layer)
+			self.residual_blocks.append(residual_conv_layers)
 
 		# softmax block
 		self.softmax_conv_layers = []
@@ -399,12 +402,13 @@ class WaveNet():
 			self.causal_conv_optimizers.append(opt)
 		
 		self.residual_conv_optimizers = []
-		for layer in self.residual_conv_layers:
-			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-			opt.setup(layer)
-			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
-			opt.add_hook(GradientClipping(params.gradient_clipping))
-			self.residual_conv_optimizers.append(opt)
+		for block in self.residual_blocks:
+			for layer in block:
+				opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
+				opt.setup(layer)
+				opt.add_hook(optimizer.WeightDecay(params.weight_decay))
+				opt.add_hook(GradientClipping(params.gradient_clipping))
+				self.residual_conv_optimizers.append(opt)
 		
 		self.softmax_conv_optimizers = []
 		for layer in self.softmax_conv_layers:
@@ -477,12 +481,20 @@ class WaveNet():
 		return output
 
 	def forward_residual_block(self, x_batch):
+		params = self.params
 		sum_skip_connections = 0
 		input_batch = self.to_variable(x_batch)
-		for layer in self.residual_conv_layers:
-			output, z = layer(input_batch)
-			sum_skip_connections += z
-			input_batch = output
+		for i, block in enumerate(self.residual_blocks):
+			if i == 0:
+				dropout_proba = 0
+			else:
+				dropout_proba = params.residual_block_dropout_proba
+			proba = random.random()
+			if proba > dropout_proba:
+				for layer in block:
+					output, z = layer(input_batch)
+					sum_skip_connections += z
+					input_batch = output
 
 		return output, sum_skip_connections
 
@@ -537,9 +549,10 @@ class WaveNet():
 			filename = dir + "/causal_conv_layer_{}.hdf5".format(i)
 			serializers.save_hdf5(filename, layer)
 
-		for i, layer in enumerate(self.residual_conv_layers):
-			filename = dir + "/residual_conv_layer_{}.hdf5".format(i)
-			serializers.save_hdf5(filename, layer)
+		for i, block in enumerate(self.residual_blocks):
+			for j, layer in enumerate(block):
+				filename = dir + "/residual_{}_conv_layer_{}.hdf5".format(i, j)
+				serializers.save_hdf5(filename, layer)
 
 		for i, layer in enumerate(self.softmax_conv_layers):
 			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)
@@ -556,9 +569,10 @@ class WaveNet():
 			filename = dir + "/causal_conv_layer_{}.hdf5".format(i)
 			load_hdf5(filename, layer)
 			
-		for i, layer in enumerate(self.residual_conv_layers):
-			filename = dir + "/residual_conv_layer_{}.hdf5".format(i)
-			load_hdf5(filename, layer)
+		for i, block in enumerate(self.residual_blocks):
+			for j, layer in enumerate(block):
+				filename = dir + "/residual_{}_conv_layer_{}.hdf5".format(i, j)
+				load_hdf5(filename, layer)
 			
 		for i, layer in enumerate(self.softmax_conv_layers):
 			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)

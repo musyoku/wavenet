@@ -1,6 +1,6 @@
 from scipy.io import wavfile
 import numpy as np
-import os, sys
+import os, sys, time
 sys.path.append(os.path.split(os.getcwd())[0])
 from args import args
 from model import params, wavenet
@@ -52,6 +52,7 @@ def train_audio(
 	num_updates = 0
 	total_updates = 0
 	sum_loss = 0
+	start_time = time.time()
 
 	if padded_input_width * batch_size + 1 > quantized_signal.size:
 		raise Exception("batch_size too large")
@@ -89,8 +90,9 @@ def train_audio(
 			sum_loss += float(loss.data)
 			total_updates += 1
 			if batch_index % log_per_update == 0:
-				print "	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss / float(log_per_update))
+				print "	batch: {}/{} loss: {:.6f} time: {} sec".format(batch_index, max_batches, sum_loss / float(log_per_update), int(time.time() - start_time))
 				sum_loss = 0
+				start_time = time.time()
 
 			# save the model
 			if total_updates % save_per_update == 0:
