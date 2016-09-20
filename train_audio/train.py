@@ -18,7 +18,8 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=128,
+		batch_size=16,
+		learnable_steps=16,
 		save_per_update=500,
 		log_per_update=200,
 		repeat=2,
@@ -38,8 +39,10 @@ def train_audio(
 	receptive_steps_per_unit = params.residual_conv_filter_width ** num_layers
 	receptive_steps = (receptive_steps_per_unit - 1) * params.residual_num_blocks + 1
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
-	target_width = 1
+	target_width = learnable_steps
 	input_width = receptive_steps
+	# to compute all learnable targets
+	input_width += learnable_steps - 1
 	## padding for causal conv block
 	input_width += len(params.causal_conv_channels)
 
@@ -58,6 +61,7 @@ def train_audio(
 	print "	receptive field width:", receptive_msec, "[millisecond]"
 	print "	receptive field width:", receptive_steps, "[time step]"
 	print "	batch_size:", batch_size
+	print "	learnable_steps:", learnable_steps
 	print "	learning_rate:", current_learning_rate
 
 	# pad with zero
