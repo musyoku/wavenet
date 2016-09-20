@@ -33,16 +33,17 @@ class FasterWaveNet(WaveNet):
 		return output
 
 	def forward_residual_block(self, x_batch):
-		self.prev_residual_outputs_out = []
-		self.prev_residual_outputs_z = []
+		self.prev_residual_outputs = []
 		sum_skip_connections = 0
 		input_batch = x_batch
-		for i, layer in enumerate(self.residual_conv_layers):
-			output, z = layer(input_batch)
-			self.prev_residual_outputs_out.append(output.data)
-			self.prev_residual_outputs_z.append(z.data)
-			sum_skip_connections += z
-			input_batch = output
+		for block in self.residual_blocks:
+			prev_outputs = []
+			for layer in block:
+				output, z = layer(input_batch)
+				prev_outputs.append([output.data, z.data])
+				sum_skip_connections += z
+				input_batch = output
+			self.prev_residual_outputs.append(prev_outputs)
 
 		return output, sum_skip_connections
 
@@ -93,24 +94,25 @@ class FasterWaveNet(WaveNet):
 		sum_skip_connections = 0
 		input = x_batch
 		xp = cuda.get_array_module(input)
-		for i, layer in enumerate(self.residual_conv_layers):
-			output, z = layer._forward(input)
+		for i, block in enumerate(self.residual_blocks):
+			prev_outputs = self.prev_residual_outputs[i]
+			for j, layer in enumerate(block):
+				output, z = layer._forward(input)
 
-			prev_output = self.prev_residual_outputs_out[i]
-			prev_output = xp.roll(prev_output, -1, axis=3)
-			prev_output[0, :, 0, -1] = output[0, :, 0, 0]
-			output = prev_output
+				prev_output, prev_z = prev_outputs[j]
 
-			prev_z = self.prev_residual_outputs_z[i]
-			prev_z = xp.roll(prev_z, -1, axis=3)
-			prev_z[0, :, 0, -1] = z[0, :, 0, 0]
-			z = prev_z
+				prev_output = xp.roll(prev_output, -1, axis=3)
+				prev_output[0, :, 0, -1] = output[0, :, 0, 0]
+				output = prev_output
 
-			self.prev_residual_outputs_out[i] = output
-			self.prev_residual_outputs_z[i] = z
+				prev_z = xp.roll(prev_z, -1, axis=3)
+				prev_z[0, :, 0, -1] = z[0, :, 0, 0]
+				z = prev_z
 
-			sum_skip_connections += z
-			input = output
+				self.prev_residual_outputs[i][j] = [output, z]
+
+				sum_skip_connections += z
+				input = output
 
 		return output, sum_skip_connections
 

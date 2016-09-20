@@ -18,7 +18,7 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=50,
+		batch_size=64,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
@@ -26,9 +26,10 @@ def train_audio(
 	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.quantization_steps)
 
 	residual_conv_dilations = []
-	max_dilation = params.residual_conv_filter_width ** len(params.residual_conv_channels)
+	num_layers = len(params.residual_conv_channels)
+	receptive_steps_per_unit = params.residual_conv_filter_width ** num_layers
 
-	receptive_steps = (max_dilation - 1) * params.residual_num_blocks + 1
+	receptive_steps = (receptive_steps_per_unit - 1) * params.residual_num_blocks + 1
 	receptive_msec = int(receptive_steps * 1000.0 / sampling_rate)
 	target_width = 1
 	input_width = receptive_steps
@@ -44,6 +45,7 @@ def train_audio(
 
 	num_updates = 0
 	total_updates = 0
+	sum_loss_epoch = 0
 	sum_loss = 0
 	start_time = time.time()
 
@@ -54,6 +56,7 @@ def train_audio(
 
 	for epoch in xrange(1, epochs + 1):
 		print "epoch: {}/{}".format(epoch, epochs)
+		sum_loss_epoch = 0
 		sum_loss = 0
 		start_time = time.time()
 		for batch_index in xrange(1, max_batches + 1):
@@ -70,21 +73,22 @@ def train_audio(
 			output = wavenet.slice_1d(output, len(params.causal_conv_channels))
 			output, sum_skip_connections = wavenet.forward_residual_block(output)
 			# remove padding
-			output = wavenet.slice_1d(output, output.data.shape[3] - target_width)
 			sum_skip_connections = wavenet.slice_1d(sum_skip_connections, sum_skip_connections.data.shape[3] - target_width)
 			# do not apply F.softmax
-			output = wavenet.forward_softmax_block(output + sum_skip_connections, softmax=False)
+			output = wavenet.forward_softmax_block(sum_skip_connections, softmax=False)
 			# compute cross entroy
 			loss = wavenet.cross_entropy(output, target_batch)
 			# update weights
 			wavenet.backprop(loss)
 
 			# logging
-			sum_loss += float(loss.data)
+			loss = float(loss.data)
+			sum_loss_epoch += loss
+			sum_loss += loss
 			total_updates += 1
 			if batch_index % log_per_update == 0:
-				print "	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss / float(log_per_update))
-				sum_loss = 0
+				print "	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss_epoch / float(log_per_update))
+				sum_loss_epoch = 0
 
 			# save the model
 			if total_updates % save_per_update == 0:
@@ -92,10 +96,12 @@ def train_audio(
 
 		wavenet.save(dir=args.model_dir)
 		print "	time: {} min".format(int((time.time() - start_time) / 60.0))
+		print "	average loss: {:.6f}".format(sum_loss / float(max_batches))
 	wavenet.save(dir=args.model_dir)
 
 def main():
-	train_audio("./wav_test/famima.wav")
+	np.random.seed(args.seed)
+	train_audio("./wav_test/ring.wav")
 
 if __name__ == '__main__':
 	main()
