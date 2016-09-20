@@ -18,10 +18,10 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=64,
+		batch_size=128,
 		save_per_update=500,
 		log_per_update=200,
-		epochs=100,
+		repeat=2,
 		initial_learning_rate=0.001,
 		final_learning_rate=0.000001
 	):
@@ -30,7 +30,8 @@ def train_audio(
 	wavenet.update_laerning_rate(initial_learning_rate)
 
 	# load audio data
-	quantized_signal, sampling_rate = data.load_audio_file(filename, quantized_channels=params.quantization_steps)
+	path_to_file = args.wav_dir + "/" + filename
+	quantized_signal, sampling_rate = data.load_audio_file(path_to_file, quantized_channels=params.quantization_steps)
 
 	# compute receptive field width
 	num_layers = len(params.residual_conv_channels)
@@ -62,8 +63,7 @@ def train_audio(
 	# pad with zero
 	quantized_signal = np.insert(quantized_signal, 0, np.zeros((input_width,), dtype=np.int32), axis=0)
 
-	for epoch in xrange(1, epochs + 1):
-		print "epoch: {}/{}".format(epoch, epochs)
+	for epoch in xrange(1, repeat + 1):
 		sum_loss_epoch = 0
 		sum_loss = 0
 		start_time = time.time()
@@ -98,7 +98,8 @@ def train_audio(
 			sum_loss += loss
 			total_updates += 1
 			if batch_index % log_per_update == 0:
-				print "	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss_epoch / float(log_per_update))
+				sys.stdout.write("\r	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss_epoch / float(log_per_update)))
+				sys.stdout.flush()
 				sum_loss_epoch = 0
 
 			# save the model
@@ -108,8 +109,8 @@ def train_audio(
 		# end of an epoch
 		wavenet.save(dir=args.model_dir)
 		average_loss = sum_loss / float(max_batches)
-		print "	time: {} min".format(int((time.time() - start_time) / 60.0))
-		print "	average loss: {:.6f}".format(average_loss)
+		print "\r	[{}/{}] time: {} min loss: {:.6f}".format(epoch, repeat, int((time.time() - start_time) / 60.0), average_loss)
+		sys.stdout.flush()
 
 		# anneal learning rate
 		if prev_averate_loss is None:
@@ -127,8 +128,24 @@ def train_audio(
 def main():
 	final_learning_rate = 0.000001
 	np.random.seed(args.seed)
+
+	files = []
+	fs = os.listdir(args.wav_dir)
+	for fn in fs:
+		print "loading", fn
+		files.append(fn)
+
 	learning_rate = params.learning_rate
-	learning_rate = train_audio("./wav_test/famima.wav", initial_learning_rate=learning_rate, final_learning_rate=final_learning_rate)
+	max_epoch = 100
+	for epoch in xrange(1, max_epoch):
+		print "epoch: {}/{}".format(epoch, max_epoch)
+		for filename in files:
+			learning_rate = train_audio(filename,
+				initial_learning_rate=learning_rate, 
+				final_learning_rate=final_learning_rate,
+				repeat=100
+			)
+
 
 if __name__ == '__main__':
 	main()
