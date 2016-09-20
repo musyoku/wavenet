@@ -18,7 +18,7 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio(
 		filename, 
-		batch_size=32,
+		batch_size=50,
 		save_per_update=500,
 		log_per_update=50,
 		epochs=100
@@ -47,9 +47,6 @@ def train_audio(
 	sum_loss = 0
 	start_time = time.time()
 
-	if input_width * batch_size + 1 > quantized_signal.size:
-		raise Exception("batch_size too large")
-
 	# pad with zero
 	quantized_signal = np.insert(quantized_signal, 0, np.zeros((input_width,), dtype=np.int32), axis=0)
 
@@ -57,6 +54,8 @@ def train_audio(
 
 	for epoch in xrange(1, epochs + 1):
 		print "epoch: {}/{}".format(epoch, epochs)
+		sum_loss = 0
+		start_time = time.time()
 		for batch_index in xrange(1, max_batches + 1):
 			# create batch
 			padded_input_batch, target_batch = create_batch(quantized_signal, batch_size, input_width, target_width)
@@ -71,9 +70,10 @@ def train_audio(
 			output = wavenet.slice_1d(output, len(params.causal_conv_channels))
 			output, sum_skip_connections = wavenet.forward_residual_block(output)
 			# remove padding
-			sum_skip_connections = wavenet.slice_1d(sum_skip_connections, output.data.shape[3] - target_width)
+			output = wavenet.slice_1d(output, output.data.shape[3] - target_width)
+			sum_skip_connections = wavenet.slice_1d(sum_skip_connections, sum_skip_connections.data.shape[3] - target_width)
 			# do not apply F.softmax
-			output = wavenet.forward_softmax_block(sum_skip_connections, softmax=False)
+			output = wavenet.forward_softmax_block(output + sum_skip_connections, softmax=False)
 			# compute cross entroy
 			loss = wavenet.cross_entropy(output, target_batch)
 			# update weights
@@ -83,15 +83,15 @@ def train_audio(
 			sum_loss += float(loss.data)
 			total_updates += 1
 			if batch_index % log_per_update == 0:
-				print "	batch: {}/{} loss: {:.6f} time: {} sec".format(batch_index, max_batches, sum_loss / float(log_per_update), int(time.time() - start_time))
+				print "	batch: {}/{} loss: {:.6f}".format(batch_index, max_batches, sum_loss / float(log_per_update))
 				sum_loss = 0
-				start_time = time.time()
 
 			# save the model
 			if total_updates % save_per_update == 0:
 				wavenet.save(dir=args.model_dir)
 
 		wavenet.save(dir=args.model_dir)
+		print "	time: {} min".format(int((time.time() - start_time) / 60.0))
 	wavenet.save(dir=args.model_dir)
 
 def main():
