@@ -43,6 +43,10 @@ run `generate.py`
 
 Passing `--use_faster_wavenet` will generate audio faster than original WaveNet.
 
+#### Listen to a sample
+
+[🎶music](https://drive.google.com/file/d/0ByQaxyG1S5JRWUZrQkpaMTJRNFk/view)
+
 ## Implementation
 
 ![figure](https://github.com/musyoku/musyoku.github.io/blob/master/images/post/2016-09-17/arch.png?raw=true)

@@ -127,7 +127,12 @@ def main():
 		average_loss = 0
 		for i, filename in enumerate(files):
 			# train
-			loss = train_audio(filename)
+			loss = train_audio(filename, 
+				batch_size=16,
+				learnable_steps=32,
+				save_per_update=500,
+				train_steps_ratio=0.05
+			)
 			average_loss += loss
 			sys.stdout.write("\repoch: {}/{} file: {}/{} {} loss: {:.3f}".format(epoch, max_epoch, i+1, len(files), filename, loss))
 			sys.stdout.flush()
