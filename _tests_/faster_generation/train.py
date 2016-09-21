@@ -31,7 +31,7 @@ def train_audio():
 	## padding for causal conv block
 	input_width += len(params.causal_conv_channels)
 
-	quantized_signal = np.mod(np.arange(1, 100), params.quantization_steps)
+	quantized_signal = np.mod(np.arange(1, 300), params.quantization_steps)
 	print quantized_signal
 
 	for rep in xrange(300):
@@ -62,7 +62,7 @@ def train_audio():
 			wavenet.backprop(loss)
 
 			sum_loss += float(loss.data)
-			
+
 		print sum_loss / 50.0
 		wavenet.save(args.model_dir)
 

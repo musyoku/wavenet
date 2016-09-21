@@ -27,14 +27,14 @@ else:
 
 	params.residual_conv_dilation_no_bias = True
 	params.residual_conv_projection_no_bias = True
-	params.residual_conv_filter_width = 2
+	params.residual_conv_filter_width = 3
 	params.residual_conv_channels = [3, 3, 3]
 	params.residual_num_blocks = 5
 
 	params.softmax_conv_no_bias = False
 	params.softmax_conv_channels = [4, 6]
 
-	params.learning_rate = 0.0001
+	params.learning_rate = 0.001
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0
