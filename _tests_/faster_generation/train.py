@@ -31,7 +31,7 @@ def train_audio():
 	## padding for causal conv block
 	input_width += len(params.causal_conv_channels)
 
-	quantized_signal = np.mod(np.arange(1, 300), params.quantization_steps)
+	quantized_signal = np.mod(np.arange(1, input_width * 10), params.quantization_steps)
 	print quantized_signal
 
 	for rep in xrange(300):

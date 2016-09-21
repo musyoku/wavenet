@@ -26,7 +26,7 @@ def generate_audio(sampling_rate=48000, generate_sec=1, remove_silence_frames=Fa
 		padded_quantized_x_batch = generated_quantized_audio[-input_width:].reshape((1, -1))
 
 		# convert to image
-		padded_x_batch = data.onehot_pixel_image(padded_quantized_x_batch, quantized_channels=params.quantization_steps)
+		padded_x_batch = data.onehot_pixel_image(padded_quantized_x_batch, quantization_steps=params.quantization_steps)
 
 		# generate next signal
 		if args.use_faster_wavenet:
