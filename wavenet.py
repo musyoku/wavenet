@@ -192,13 +192,13 @@ class DilatedConvolution1D(L.Convolution2D):
 	def _forward(self, x_batch_data):
 		xp = cuda.get_array_module(x_batch_data)
 		if self.dilation == 1:
-			x = xp.empty((1, x_batch_data.shape[1], 1, 2), dtype=xp.float32)
-			x[0, :, 0, 0] = x_batch_data[0, :, 0, -self.dilation-1]
-			x[0, :, 0, 1] = x_batch_data[0, :, 0, -1]
+			x = xp.empty((1, x_batch_data.shape[1], 1, self.filter_width), dtype=xp.float32)
+			for n in xrange(self.filter_width):
+				x[0, :, 0, n] = x_batch_data[0, :, 0, -self.dilation * n - 1]
 		else:
-			x = xp.empty((1, x_batch_data.shape[1], 2, 1), dtype=xp.float32)
-			x[0, :, 0, 0] = x_batch_data[0, :, 0, -self.dilation-1]
-			x[0, :, 1, 0] = x_batch_data[0, :, 0, -1]
+			x = xp.empty((1, x_batch_data.shape[1], self.filter_width, 1), dtype=xp.float32)
+			for n in xrange(self.filter_width):
+				x[0, :, n, 0] = x_batch_data[0, :, 0, -self.dilation * n - 1]
 
 		W = self.W.data
 		return W.reshape(1, self.out_channels, self.in_channels * self.filter_width).dot(x.reshape(1, self.in_channels * self.filter_width, 1))

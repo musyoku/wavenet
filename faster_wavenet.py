@@ -71,10 +71,9 @@ class FasterWaveNet(WaveNet):
 			prev_output = xp.roll(prev_output, -1, axis=3)
 			prev_output[0, :, 0, -1] = output[0, :, 0, 0]
 			output = prev_output
+			input = output
 
 			self.prev_causal_outputs[i] = output
-			
-			input = output
 		return output
 
 	def _forward_residual_block(self, x_batch):
