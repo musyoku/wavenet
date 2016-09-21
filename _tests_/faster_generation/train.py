@@ -18,38 +18,54 @@ def create_batch(signal, batch_size, input_width, target_width):
 
 def train_audio():
 
-	target_width = 5
-	padded_input_width = 9
-	batch_size = 5
+	# compute receptive field width
+	learnable_steps = 1
+	batch_size = 1
+	num_layers = len(params.residual_conv_channels)
+	receptive_steps_per_unit = params.residual_conv_filter_width ** num_layers
+	receptive_steps = (receptive_steps_per_unit - 1) * params.residual_num_blocks + 1
+	target_width = learnable_steps
+	input_width = receptive_steps
+	# to compute all learnable targets
+	input_width += learnable_steps - 1
+	## padding for causal conv block
+	input_width += len(params.causal_conv_channels)
 
-	quantized_signal = np.mod(np.arange(1, 100), 6)
-	quantized_signal = np.repeat(np.arange(0, 10), 100, axis=0)
+	quantized_signal = np.mod(np.arange(1, 100), params.quantization_steps)
 	print quantized_signal
 
-	for i in xrange(100):
-		b, t = create_batch(quantized_signal, batch_size, padded_input_width, target_width)
-		print b
-		print t
-	raise Exception()
+	for rep in xrange(300):
+		sum_loss = 0
+		for train in xrange(50):
+			# create batch
+			input_batch, target_batch = create_batch(quantized_signal, batch_size, input_width, target_width)
 
-	for rep in xrange(30):
-		for pos in xrange(quantized_signal.size // (padded_input_width * batch_size)):
-			for shift in xrange(padded_input_width):
-				if (pos + 1) * padded_input_width * batch_size + shift + 1 < quantized_signal.size:
-					padded_signal_batch, target_batch = create_padded_batch(quantized_signal, batch_size, pos, shift, target_width, padded_input_width)
-					
-					padded_onehot_batch = data.onehot_pixel_image(padded_signal_batch, quantized_channels=params.quantization_steps)
+			# convert to 1xW image whose #channels is equal to the quantization steps of audio
+			# input_batch.shape = (BATCHSIZE, CHANNELS(=quantization_steps), HEIGHT(=1), WIDTH(=input_width))
+			input_batch = data.onehot_pixel_image(input_batch, quantization_steps=params.quantization_steps)
 
-					# print padded_signal_batch[0, -1]
-					# print padded_onehot_batch[0, :, 0, -1]
-					# print target_batch[0, -1]
+			# training
+			## causal block
+			output = wavenet.forward_causal_block(input_batch)
+			## remove causal padding
+			output = wavenet.slice_1d(output, len(params.causal_conv_channels))
+			## residual dilated conv block
+			output, sum_skip_connections = wavenet.forward_residual_block(output)
+			## remove unnecessary elements
+			sum_skip_connections = wavenet.slice_1d(sum_skip_connections, sum_skip_connections.data.shape[3] - target_width)
+			## softmax block
+			## Note: do not apply F.softmax
+			output = wavenet.forward_softmax_block(sum_skip_connections, softmax=False)
+			## compute cross entroy
+			loss = wavenet.cross_entropy(output, target_batch)
+			## update weights
+			wavenet.backprop(loss)
 
-					loss = wavenet.loss(padded_onehot_batch, target_batch)
-					wavenet.backprop(loss)
+			sum_loss += float(loss.data)
+			
+		print sum_loss / 50.0
+		wavenet.save(args.model_dir)
 
-		print float(loss.data)
-
-	wavenet.save(args.model_dir)
 
 
 def main():

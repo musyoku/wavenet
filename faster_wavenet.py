@@ -10,10 +10,8 @@ from wavenet import WaveNet
 
 class FasterWaveNet(WaveNet):
 
-	def forward_one_step(self, padded_x_batch_data, softmax=True, return_numpy=False):
-		x_batch = Variable(padded_x_batch_data)
-		if self.gpu_enabled:
-			x_batch.to_gpu()
+	def forward_one_step(self, x_batch, softmax=True, return_numpy=False):
+		x_batch = self.to_variable(x_batch)
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
 		softmax_output = self.forward_softmax_block(sum_skip_connections, softmax=softmax)
@@ -25,7 +23,7 @@ class FasterWaveNet(WaveNet):
 
 	def forward_causal_block(self, x_batch):
 		self.prev_causal_outputs = []
-		input_batch = x_batch
+		input_batch = self.to_variable(x_batch)
 		for layer in self.causal_conv_layers:
 			output = layer(input_batch)
 			self.prev_causal_outputs.append(output.data)
@@ -35,7 +33,7 @@ class FasterWaveNet(WaveNet):
 	def forward_residual_block(self, x_batch):
 		self.prev_residual_outputs = []
 		sum_skip_connections = 0
-		input_batch = x_batch
+		input_batch = self.to_variable(x_batch)
 		for block in self.residual_blocks:
 			prev_outputs = []
 			for layer in block:
@@ -46,17 +44,6 @@ class FasterWaveNet(WaveNet):
 			self.prev_residual_outputs.append(prev_outputs)
 
 		return output, sum_skip_connections
-
-	def forward_softmax_block(self, x_batch, softmax=True):
-		batchsize = x_batch.data.shape[0]
-		input_batch = x_batch
-		for layer in self.softmax_conv_layers:
-			input_batch = F.elu(input_batch)
-			output = layer(input_batch)
-			input_batch = output
-		if softmax:
-			output = F.softmax(output)
-		return output
 
 	# for faster generation
 	def _forward_one_step(self, x_batch_data, softmax=True, return_numpy=False):

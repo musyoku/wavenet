@@ -14,9 +14,11 @@ if os.path.isfile(filename):
 	f = open(filename)
 	dict = json.load(f)
 	params = Params(dict)
+	params.gpu_enabled = True if args.gpu_enabled == 1 else False
 	wavenet = FasterWaveNet(params)
 else:
 	params = Params()
+	params.gpu_enabled = True if args.gpu_enabled == 1 else False
 	params.quantization_steps = 6
 
 	params.causal_conv_no_bias = True
@@ -30,10 +32,9 @@ else:
 	params.residual_num_blocks = 5
 
 	params.softmax_conv_no_bias = False
-	params.softmax_conv_kernel_width = 2
 	params.softmax_conv_channels = [4, 6]
 
-	params.learning_rate = 0.01
+	params.learning_rate = 0.0001
 	params.gradient_momentum = 0.9
 	params.weight_decay = 0.00001
 	params.gradient_clipping = 10.0
@@ -42,6 +43,5 @@ else:
 	f = open(filename, "w")
 	json.dump(params.to_dict(), f, indent=4)
 
-params.gpu_enabled = True if args.gpu_enabled == 1 else False
 params.dump()
 wavenet.load(args.model_dir)

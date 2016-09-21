@@ -468,10 +468,8 @@ class WaveNet():
 			return x.data.shape[0]
 		return x.shape[0]
 
-	def forward_one_step(self, x_batch_data, softmax=True, return_numpy=False):
-		x_batch = Variable(x_batch_data)
-		if self.gpu_enabled:
-			x_batch.to_gpu()
+	def forward_one_step(self, x_batch, softmax=True, return_numpy=False):
+		x_batch = self.to_variable(x_batch)
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
 		softmax_output = self.forward_softmax_block(sum_skip_connections, softmax=softmax)
