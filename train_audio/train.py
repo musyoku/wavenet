@@ -19,7 +19,7 @@ def create_batch(signal, batch_size, input_width, target_width):
 def train_audio(
 		filename, 
 		batch_size=16,
-		learnable_steps=32,
+		learnable_steps=16,
 		save_per_update=500,
 		train_steps_ratio=0.05,
 	):
@@ -126,6 +126,8 @@ def main():
 	for epoch in xrange(1, max_epoch):
 		average_loss = 0
 		for i, filename in enumerate(files):
+			sys.stdout.write("\repoch: {}/{} file: {}/{} {}".format(epoch, max_epoch, i+1, len(files), filename))
+			sys.stdout.flush()
 			# train
 			loss = train_audio(filename, 
 				batch_size=16,
@@ -134,11 +136,9 @@ def main():
 				train_steps_ratio=0.05
 			)
 			average_loss += loss
-			sys.stdout.write("\repoch: {}/{} file: {}/{} {} loss: {:.3f}".format(epoch, max_epoch, i+1, len(files), filename, loss))
-			sys.stdout.flush()
 
 		average_loss /= len(files)
-		sys.stdout.write("\repoch: {}/{} loss: {:.3f}".format(epoch, max_epoch, average_loss))
+		sys.stdout.write("\repoch: {}/{} loss: {:.3f}								".format(epoch, max_epoch, average_loss))
 		sys.stdout.flush()
 		sys.stdout.write("\n")
 
