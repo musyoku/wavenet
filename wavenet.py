@@ -15,7 +15,7 @@ class Params():
 		# entire architecture
 		# causal conv stack -> residual dilated conv stack -> skip-connections conv -> softmax
 
-		self.causal_conv_no_bias = False
+		self.causal_conv_no_bias = True
 		# Note: kernel_height is fixed to 1
 		self.causal_conv_filter_width = 2
 		# [<- input   output ->]
@@ -23,8 +23,8 @@ class Params():
 		# to add more layers, [128, 128, 128, ...]
 		self.causal_conv_channels = [128]
 
-		self.residual_conv_dilation_no_bias = False
-		self.residual_conv_projection_no_bias = False
+		self.residual_conv_dilation_no_bias = True
+		self.residual_conv_projection_no_bias = True
 		# Note: kernel_height is fixed to 1
 		self.residual_conv_filter_width = 2
 		# [<- input   output ->]

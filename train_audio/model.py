@@ -30,7 +30,7 @@ else:
 	params.quantization_steps = 256
 	params.sampling_rate = 8000
 
-	params.causal_conv_no_bias = False
+	params.causal_conv_no_bias = True
 	params.causal_conv_filter_width = 2
 	params.causal_conv_channels = [128]
 
