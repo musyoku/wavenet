@@ -4,8 +4,9 @@ import numpy as np
 
 def load_audio_file(filename, quantization_steps=256, format="16bit_pcm"):
 	sampling_rate, signal = wavfile.read(filename)
-	# discard R channel to convert to mono
-	signal = signal[:, 0].astype(float)
+	# discard R channel to convert to mono if necessary
+	if len(signal.shape) > 1:
+		signal = signal[:, 0].astype(float)
 	# normalize to -1 ~ 1
 	if format == "16bit_pcm":
 		max = 1<<15
