@@ -109,8 +109,10 @@ def main():
 	files = []
 	fs = os.listdir(args.wav_dir)
 	for fn in fs:
-		print "loading", fn
-		files.append(fn)
+		# filter out non-wav files
+		if fn.endswith('.wav'):
+			print "loading", fn
+			files.append(fn)
 
 	# compute receptive field width
 	num_layers = len(params.residual_conv_channels)
