@@ -4,9 +4,9 @@ import numpy as np
 
 def load_audio_file(filename, quantization_steps=256, format="16bit_pcm"):
 	sampling_rate, signal = wavfile.read(filename)
-	# discard R channel to convert to mono if necessary
-	if len(signal.shape) > 1:
-		signal = signal[:, 0].astype(float)
+ 	# discard R channel to convert to mono if necessary
+ 	if len(signal.shape) > 1:
+ 		signal = signal[:, 0].astype(float)
 	# normalize to -1 ~ 1
 	if format == "16bit_pcm":
 		max = 1<<15
@@ -18,8 +18,20 @@ def load_audio_file(filename, quantization_steps=256, format="16bit_pcm"):
 	# mu-law companding transformation (ITU-T, 1988)
 	mu = quantization_steps - 1
 	signal = np.sign(signal) * np.log(1 + mu * np.absolute(signal)) / np.log(1 + mu)
+	
 	# quantize
-	quantized_signal = (np.clip(signal * 0.5 + 0.5, 0, 1) * mu).astype(int)
+	quantized_signal = (np.clip(signal * 0.5 + 0.5, 0, 1) * mu).astype(np.int32)
+
+	# remove silence signals
+	silence_threshold = 1
+	for start in xrange(quantized_signal.size):
+		if abs(quantized_signal[start] - 127) > silence_threshold:
+			break
+	for end in xrange(1, quantized_signal.size):
+		if abs(quantized_signal[-end] - 127) > silence_threshold:
+			break
+	quantized_signal = quantized_signal[start:-end]
+
 	return quantized_signal, sampling_rate
 
 def save_audio_file(filename, quantized_signal, quantization_steps=256, format="16bit_pcm", sampling_rate=48000):

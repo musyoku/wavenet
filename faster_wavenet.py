@@ -10,12 +10,12 @@ from wavenet import WaveNet
 
 class FasterWaveNet(WaveNet):
 
-	def forward_one_step(self, x_batch, softmax=True, return_numpy=False):
+	def forward_one_step(self, x_batch, apply_softmax=True, as_numpy=False):
 		x_batch = self.to_variable(x_batch)
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
-		softmax_output = self.forward_softmax_block(sum_skip_connections, softmax=softmax)
-		if return_numpy:
+		softmax_output = self.forward_softmax_block(sum_skip_connections, apply_softmax=apply_softmax)
+		if as_numpy:
 			if self.gpu_enabled:
 				softmax_output.to_cpu()
 			return softmax_output.data
@@ -47,16 +47,16 @@ class FasterWaveNet(WaveNet):
 		return output, sum_skip_connections
 
 	# for faster generation
-	def _forward_one_step(self, x_batch_data, softmax=True, return_numpy=False):
+	def _forward_one_step(self, x_batch_data, apply_softmax=True, as_numpy=False):
 		if hasattr(self, "prev_causal_outputs") == False or self.prev_causal_outputs is None:
-			return self.forward_one_step(x_batch_data, softmax=softmax, return_numpy=return_numpy)
+			return self.forward_one_step(x_batch_data, apply_softmax=apply_softmax, as_numpy=as_numpy)
 
 		if self.gpu_enabled:
 			x_batch_data = cuda.to_gpu(x_batch_data)
 		causal_output = self._forward_causal_block(x_batch_data)
 		residual_output, sum_skip_connections = self._forward_residual_block(causal_output)
-		softmax_output = self._forward_softmax_block(sum_skip_connections, softmax=softmax)
-		if return_numpy:
+		softmax_output = self._forward_softmax_block(sum_skip_connections, apply_softmax=apply_softmax)
+		if as_numpy:
 			if self.gpu_enabled:
 				softmax_output.to_cpu()
 			return softmax_output.data
@@ -102,12 +102,12 @@ class FasterWaveNet(WaveNet):
 
 		return output, sum_skip_connections
 
-	def _forward_softmax_block(self, x_batch, softmax=True):
+	def _forward_softmax_block(self, x_batch, apply_softmax=True):
 		input_batch = Variable(x_batch)
 		for layer in self.softmax_conv_layers:
 			input_batch = F.elu(input_batch)
 			output = layer(input_batch)
 			input_batch = output
-		if softmax:
+		if apply_softmax:
 			output = F.softmax(output)
 		return output

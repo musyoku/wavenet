@@ -7,6 +7,96 @@ from chainer.utils import type_check
 from chainer import functions as F
 from chainer import links as L
 
+class Eve(optimizer.GradientMethod):
+	def __init__(self, alpha=0.001, beta1=0.9, beta2=0.999, beta3=0.999, eps=1e-8, lower_threshold=0.1, upper_threshold=10):
+		self.alpha = alpha
+		self.beta1 = beta1
+		self.beta2 = beta2
+		self.beta3 = beta3
+		self.eps = eps
+		self.lower_threshold = lower_threshold
+		self.upper_threshold = upper_threshold
+
+	def init_state(self, param, state):
+		xp = cuda.get_array_module(param.data)
+		with cuda.get_device(param.data):
+			state['m'] = xp.zeros_like(param.data)
+			state['v'] = xp.zeros_like(param.data)
+			state['d'] = xp.ones(1, dtype=param.data.dtype)
+			state['f'] = xp.zeros(1, dtype=param.data.dtype)
+
+	def _update_d_and_f(self, state):
+		d, f = state['d'], state['f']
+		if self.t > 1:
+			old_f = float(cuda.to_cpu(state['f']))
+			if self.loss > old_f:
+				delta = self.lower_threshold + 1.
+				Delta = self.upper_threshold + 1.
+			else:
+				delta = 1. / (self.upper_threshold + 1.)
+				Delta = 1. / (self.lower_threshold + 1.)
+			c = min(max(delta, self.loss / (old_f + 1e-12)), Delta)
+			new_f = c * old_f
+			r = abs(new_f - old_f) / (min(new_f, old_f) + 1e-12)
+			d += (1 - self.beta3) * (r - d)
+			f[:] = new_f
+		else:
+			f[:] = self.loss
+
+	def update_one_cpu(self, param, state):
+		m, v, d = state['m'], state['v'], state['d']
+		grad = param.grad
+
+		self._update_d_and_f(state)
+		m += (1. - self.beta1) * (grad - m)
+		v += (1. - self.beta2) * (grad * grad - v)
+		param.data -= self.lr * m / (d * np.sqrt(v) + self.eps)
+
+	def update_one_gpu(self, param, state):
+		self._update_d_and_f(state)
+		cuda.elementwise(
+			'T grad, T lr, T one_minus_beta1, T one_minus_beta2, T eps, T d',
+			'T param, T m, T v',
+			'''m += one_minus_beta1 * (grad - m);
+			   v += one_minus_beta2 * (grad * grad - v);
+			   param -= lr * m / (d * sqrt(v) + eps);''',
+			'eve')(param.grad, self.lr, 1 - self.beta1, 1 - self.beta2,
+				   self.eps, float(state['d']), param.data, state['m'],
+				   state['v'])
+
+	@property
+	def lr(self):
+		fix1 = 1. - self.beta1 ** self.t
+		fix2 = 1. - self.beta2 ** self.t
+		return self.alpha * math.sqrt(fix2) / fix1
+
+	def update(self, lossfun=None, *args, **kwds):
+		# Overwrites GradientMethod.update in order to get loss values
+		if lossfun is None:
+			raise RuntimeError('Eve.update requires lossfun to be specified')
+		loss_var = lossfun(*args, **kwds)
+		self.loss = float(loss_var.data)
+		super(Eve, self).update(lossfun=lambda: loss_var)
+
+def get_optimizer(name, lr, momentum=0.9):
+	if name.lower() == "adam":
+		return chainer.optimizers.Adam(alpha=lr, beta1=momentum)
+	if name.lower() == "eve":
+		return Eve(alpha=lr, beta1=momentum)
+	if name.lower() == "adagrad":
+		return chainer.optimizers.AdaGrad(lr=lr)
+	if name.lower() == "adadelta":
+		return chainer.optimizers.AdaDelta(rho=momentum)
+	if name.lower() == "nesterov" or name.lower() == "nesterovag":
+		return chainer.optimizers.NesterovAG(lr=lr, momentum=momentum)
+	if name.lower() == "rmsprop":
+		return chainer.optimizers.RMSprop(lr=lr, alpha=momentum)
+	if name.lower() == "momentumsgd":
+		return chainer.optimizers.MomentumSGD(lr=lr, mommentum=mommentum)
+	if name.lower() == "sgd":
+		return chainer.optimizers.SGD(lr=lr)
+	raise Exception()
+
 class Params():
 	def __init__(self, dict=None):
 		self.quantization_steps = 256
@@ -50,11 +140,10 @@ class Params():
 		# skip-connections -> ReLU -> conv -> (128,) -> ReLU -> conv -> (256,) -> softmax -> prediction
 		self.softmax_conv_channels = [128, 256]
 
-		self.gpu_enabled = True
-		self.learning_rate = 0.001
-		self.weight_decay = 0.00001
-		self.gradient_momentum = 0.9
-		self.gradient_clipping = 10.0
+		self.optimizer = "adam"
+		self.weight_decay = 0
+		self.momentum = 0.9
+		self.gradient_clipping = 1.0
 
 		if dict:
 			self.from_dict(dict)
@@ -80,8 +169,6 @@ class Params():
 		for attr, value in self.__dict__.iteritems():
 			if not hasattr(base, attr):
 				raise Exception("invalid parameter '{}'".format(attr))
-		if self.causal_conv_channels[-1] != self.softmax_conv_channels[0]:
-			raise Exception("causal_conv_channels[-1] != softmax_conv_channels[0]")
 		if self.quantization_steps != self.softmax_conv_channels[-1]:
 			raise Exception("quantization_steps != softmax_conv_channels[-1]")
 
@@ -111,6 +198,7 @@ class GradientClipping(object):
 				with cuda.get_device(grad):
 					grad *= rate
 
+# [1, 2, 3, 4] -> [0, 0, 0, 1, 2, 3, 4]
 class CausalPadding1d(function.Function):
 	def __init__(self, pad=0):
 		self.pad = pad
@@ -141,6 +229,7 @@ class CausalPadding1d(function.Function):
 	def backward(self, inputs, grad_outputs):
 		return grad_outputs[0][:,:,:,self.pad:],
 
+# [1, 2, 3, 4] -> [3, 4]
 class CausalSlice1d(function.Function):
 	def __init__(self, cut=1):
 		if cut < 1:
@@ -173,12 +262,12 @@ class CausalSlice1d(function.Function):
 
 class DilatedConvolution1D(L.Convolution2D):
 
-	def __init__(self, in_channels, out_channels, ksize, filter_width=2, layer_index=0, stride=1, nobias=False, initialW=None):
+	def __init__(self, in_channels, out_channels, ksize, filter_width=2, dilation=1, stride=1, nobias=False, wscale=1):
 		self.in_channels = in_channels
 		self.out_channels = out_channels
 		self.filter_width = filter_width
-		self.dilation = filter_width ** layer_index
-		super(DilatedConvolution1D, self).__init__(in_channels, out_channels, ksize=ksize, stride=stride, initialW=initialW, nobias=nobias)
+		self.dilation = dilation
+		super(DilatedConvolution1D, self).__init__(in_channels, out_channels, ksize=ksize, stride=stride, wscale=wscale, nobias=nobias)
 
 	# [1, 2, 3, 4] -> [0, 0, 0, 1, 2, 3, 4]
 	def padding_1d(self, x, pad):
@@ -252,10 +341,7 @@ class DilatedConvolution1D(L.Convolution2D):
 
 		return out
 
-class ResidualConvLayer(chainer.Chain):
-	def __init__(self, **layers):
-		super(ResidualConvLayer, self).__init__(**layers)
-
+class ResidualConvLayer():
 	@property
 	def xp(self):
 		return np if self._cpu else cuda.cupy
@@ -263,29 +349,32 @@ class ResidualConvLayer(chainer.Chain):
 	# for faster generation
 	def _forward(self, x):
 		z = F.tanh(self.wf._forward(x)) * F.sigmoid(self.wg._forward(x))
-		z = self.projection(z)
-		output = z.data[0, :, 0, 0] + x[0, :, 0, -1]
+		projection_block = self.projection_block(z)
+		projection_softmax = self.projection_softmax(z)
+		output = projection_block.data[0, :, 0, 0] + x[0, :, 0, -1]
 		output = output.reshape((1, -1, 1, 1))
-		return output, z.data
+		return output, projection_softmax.data
 
 	def __call__(self, x):
 		# gated activation
 		z = F.tanh(self.wf(x)) * F.sigmoid(self.wg(x))
 
 		# 1x1 conv
-		z = self.projection(z)
+		projection_block = self.projection_block(z)
+		projection_softmax = self.projection_softmax(z)
 
 		# residual
-		output = z + x
-		return output, z
+		output = projection_block + x
+		return output, projection_softmax
 
 class WaveNet():
-
 	def __init__(self, params):
 		params.check()
 		self.params = params
+		self.chain = chainer.Chain()
 		self.create_network()
-		self.setup_optimizers()
+		self.setup_optimizer()
+		self._gpu = False
 
 	def create_network(self):
 		params = self.params
@@ -300,16 +389,11 @@ class WaveNet():
 		channels += zip(params.causal_conv_channels[:-1], params.causal_conv_channels[1:])
 
 		for layer_index, (n_in, n_out) in enumerate(channels):
-			attributes = {}
 			std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
-			initial_w = np.random.normal(scale=std, size=(n_out, n_in, 1, filter_width))
-
 			layer = DilatedConvolution1D(n_in, n_out, ksize, 
-				filter_width=filter_width, 
-				layer_index=layer_index, 
-				stride=1, nobias=nobias, initialW=initial_w)
-			if params.gpu_enabled:
-				layer.to_gpu()
+					filter_width=filter_width,
+					dilation=1,
+					nobias=nobias, wscale=std)
 			self.causal_conv_layers.append(layer)
 
 		# stack residual blocks
@@ -318,6 +402,7 @@ class WaveNet():
 		nobias_projection = params.residual_conv_projection_no_bias
 		filter_width = params.residual_conv_filter_width
 		n_in = params.causal_conv_channels[-1]
+		n_softmax_in = params.softmax_conv_channels[0]
 
 		residual_conv_dilations = []
 		dilation = 1
@@ -328,6 +413,7 @@ class WaveNet():
 		for stack in xrange(params.residual_num_blocks):
 			residual_conv_layers = []
 			for layer_index in xrange(len(params.residual_conv_channels)):
+				residual_layer = ResidualConvLayer()
 				n_out = params.residual_conv_channels[layer_index]
 				# filter
 				if layer_index == 0:
@@ -338,37 +424,26 @@ class WaveNet():
 					ksize = (filter_width, 1)
 					shape_w = (n_out, n_in, filter_width, 1)
 
-				attributes = {}
-
-				# weight for filter
 				std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
-				initial_w = np.random.normal(scale=std, size=shape_w)
 
 				# filter
-				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
+				residual_layer.wf = DilatedConvolution1D(n_in, n_out, ksize, 
 					filter_width=filter_width,
-					layer_index=layer_index,
-					stride=1, nobias=nobias_dilation, initialW=initial_w)
-				attributes["wf"] = dilated_conv_layer 
-
-				# weight for gate
-				std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
-				initial_w = np.random.normal(scale=std, size=shape_w)
+					dilation=filter_width ** layer_index,
+					nobias=nobias_dilation, wscale=std)
 
 				# gate
-				dilated_conv_layer = DilatedConvolution1D(n_in, n_out, ksize, 
-					filter_width=filter_width, 
-					layer_index=layer_index,
-					stride=1, nobias=nobias_dilation, initialW=initial_w)
-				attributes["wg"] = dilated_conv_layer
+				residual_layer.wg = DilatedConvolution1D(n_in, n_out, ksize, 
+					filter_width=filter_width,
+					dilation=filter_width ** layer_index,
+					nobias=nobias_dilation, wscale=std)
 
 				# projection
-				attributes["projection"] = L.Convolution2D(n_out, n_in, 1, stride=1, nobias=nobias_projection)
+				std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
+				residual_layer.projection_block = L.Convolution2D(n_out, n_in, 1, stride=1, pad=0, nobias=nobias_projection, wscale=std)
+				residual_layer.projection_softmax = L.Convolution2D(n_out, n_softmax_in, 1, stride=1, pad=0, nobias=nobias_projection, wscale=std)
 
 				# residual conv block
-				residual_layer = ResidualConvLayer(**attributes)
-				if params.gpu_enabled:
-					residual_layer.to_gpu()
 				residual_conv_layers.append(residual_layer)
 			self.residual_blocks.append(residual_conv_layers)
 
@@ -376,78 +451,86 @@ class WaveNet():
 		self.softmax_conv_layers = []
 		nobias = params.softmax_conv_no_bias
 
-		channels = [(params.causal_conv_channels[-1], params.softmax_conv_channels[0])]
-		channels += zip(params.softmax_conv_channels[:-1], params.softmax_conv_channels[1:])
+		# channels = [(params.causal_conv_channels[-1], params.softmax_conv_channels[0])]
+		channels = zip(params.softmax_conv_channels[:-1], params.softmax_conv_channels[1:])
 
 		for i, (n_in, n_out) in enumerate(channels):
-			initial_w = np.random.normal(scale=math.sqrt(2.0 / n_out), size=(n_out, n_in, 1, 1))
+			# initial_w = np.random.normal(scale=math.sqrt(2.0 / n_out), size=(n_out, n_in, 1, 1))
+			self.softmax_conv_layers.append(L.Convolution2D(n_in, n_out, ksize=1, stride=1, pad=0, nobias=nobias, wscale=math.sqrt(2.0 / n_out)))
 
-			conv_layer = L.Convolution2D(n_in, n_out, ksize=1, stride=1, nobias=nobias, initialW=initial_w)
-			if params.gpu_enabled:
-				conv_layer.to_gpu()
-			self.softmax_conv_layers.append(conv_layer)
-
-	def setup_optimizers(self):
+	def setup_optimizer(self):
 		params = self.params
 		
-		self.causal_conv_optimizers = []
-		for layer in self.causal_conv_layers:
-			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-			opt.setup(layer)
-			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
-			opt.add_hook(GradientClipping(params.gradient_clipping))
-			self.causal_conv_optimizers.append(opt)
+		# add all links
+		for i, link in enumerate(self.causal_conv_layers):
+			self.chain.add_link("causal_{}".format(i), link)
 		
-		self.residual_conv_optimizers = []
-		for block in self.residual_blocks:
-			for layer in block:
-				opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-				opt.setup(layer)
-				opt.add_hook(optimizer.WeightDecay(params.weight_decay))
-				opt.add_hook(GradientClipping(params.gradient_clipping))
-				self.residual_conv_optimizers.append(opt)
+		for j, block in enumerate(self.residual_blocks):
+			for i, layer in enumerate(block):
+				self.chain.add_link("residual_{}_block_{}_wf".format(j, i), layer.wf)
+				self.chain.add_link("residual_{}_block_{}_wg".format(j, i), layer.wg)
+				self.chain.add_link("residual_{}_block_{}_projection_block".format(j, i), layer.projection_block)
+				self.chain.add_link("residual_{}_block_{}_projection_softmax".format(j, i), layer.projection_softmax)
 		
-		self.softmax_conv_optimizers = []
-		for layer in self.softmax_conv_layers:
-			opt = optimizers.Adam(alpha=params.learning_rate, beta1=params.gradient_momentum)
-			opt.setup(layer)
-			opt.add_hook(optimizer.WeightDecay(params.weight_decay))
+		for i, link in enumerate(self.softmax_conv_layers):
+			self.chain.add_link("softmax_{}".format(i), link)
+
+		# setup optimizer
+		opt = get_optimizer(params.optimizer, 0.0001, params.momentum)
+		opt.setup(self.chain)
+		if params.weight_decay > 0:
+			opt.add_hook(chainer.optimizer.WeightDecay(params.weight_decay))
+		if params.gradient_clipping > 0:
 			opt.add_hook(GradientClipping(params.gradient_clipping))
-			self.softmax_conv_optimizers.append(opt)
+		self.optimizer = opt
 
 	def update_laerning_rate(self, lr):
-		for opt in self.causal_conv_optimizers:
-			opt.alpha = lr
+		if isinstance(self.optimizer, optimizers.Adam):
+			self.optimizer.alpha = lr
+			return
+		if isinstance(self.optimizer, Eve):
+			self.optimizer.alpha = lr
+			return
+		if isinstance(self.optimizer, optimizers.AdaDelta):
+			# AdaDelta has no learning rate
+			return
+		self.optimizer.lr = lr
 
-		for opt in self.residual_conv_optimizers:
-			opt.alpha = lr
-			
-		for opt in self.softmax_conv_optimizers:
-			opt.alpha = lr
+	def update_momentum(self, momentum):
+		if isinstance(self.optimizer, optimizers.Adam):
+			self.optimizer.beta1 = momentum
+			return
+		if isinstance(self.optimizer, Eve):
+			self.optimizer.beta1 = momentum
+			return
+		if isinstance(self.optimizer, optimizers.AdaDelta):
+			self.optimizer.rho = momentum
+			return
+		if isinstance(self.optimizer, optimizers.NesterovAG):
+			self.optimizer.momentum = momentum
+			return
+		if isinstance(self.optimizer, optimizers.RMSprop):
+			self.optimizer.alpha = momentum
+			return
+		if isinstance(self.optimizer, optimizers.MomentumSGD):
+			self.optimizer.mommentum = momentum
+			return
 
-	def zero_grads(self):
-		for opt in self.causal_conv_optimizers:
-			opt.zero_grads()
+	def backprop(self, loss):
+		if isinstance(loss, Variable):
+			self.optimizer.update(lossfun=lambda: loss)
+		else:
+			self.optimizer.update(lossfun=loss)
 
-		for opt in self.residual_conv_optimizers:
-			opt.zero_grads()
-			
-		for opt in self.softmax_conv_optimizers:
-			opt.zero_grads()
-
-	def update(self):
-		for opt in self.causal_conv_optimizers:
-			opt.update()
-
-		for opt in self.residual_conv_optimizers:
-			opt.update()
-			
-		for opt in self.softmax_conv_optimizers:
-			opt.update()
+	def to_gpu(self):
+		self.chain.to_gpu()
+		self._gpu = True
 
 	@property
 	def gpu_enabled(self):
-		return self.params.gpu_enabled
+		if cuda.available is False:
+			return False
+		return self._gpu
 
 	def slice_1d(self, x, cut=0):
 		return CausalSlice1d(cut)(x)
@@ -462,20 +545,25 @@ class WaveNet():
 				x.to_gpu()
 		return x
 
+	def to_numpy(self, x):
+		if isinstance(x, Variable) == True:
+			x = x.data
+		if isinstance(x, cuda.ndarray) == True:
+			x = cuda.to_cpu(x)
+		return x
+
 	def get_batchsize(self, x):
 		if isinstance(x, Variable):
 			return x.data.shape[0]
 		return x.shape[0]
 
-	def forward_one_step(self, x_batch, softmax=True, return_numpy=False):
+	def forward_one_step(self, x_batch, apply_softmax=True, as_numpy=False):
 		x_batch = self.to_variable(x_batch)
 		causal_output = self.forward_causal_block(x_batch)
 		residual_output, sum_skip_connections = self.forward_residual_block(causal_output)
-		softmax_output = self.forward_softmax_block(sum_skip_connections, softmax=softmax)
-		if return_numpy:
-			if self.gpu_enabled:
-				softmax_output.to_cpu()
-			return softmax_output.data
+		softmax_output = self.forward_softmax_block(sum_skip_connections, apply_softmax=apply_softmax)
+		if as_numpy:
+			return self.to_numpy(softmax_output)
 		return softmax_output
 
 	def forward_causal_block(self, x_batch):
@@ -497,14 +585,14 @@ class WaveNet():
 
 		return output, sum_skip_connections
 
-	def forward_softmax_block(self, x_batch, softmax=True):
+	def forward_softmax_block(self, x_batch, apply_softmax=True):
 		input_batch = self.to_variable(x_batch)
 		batchsize = self.get_batchsize(x_batch)
 		for layer in self.softmax_conv_layers:
-			input_batch = F.elu(input_batch)
+			input_batch = F.relu(input_batch)
 			output = layer(input_batch)
 			input_batch = output
-		if softmax:
+		if apply_softmax:
 			output = F.softmax(output)
 		return output
 
@@ -529,49 +617,27 @@ class WaveNet():
 		raw_network_output = F.transpose(raw_network_output, (0, 3, 2, 1))
 		raw_network_output = F.reshape(raw_network_output, (batchsize * target_width, -1))
 
-		loss = F.sum(F.softmax_cross_entropy(raw_network_output, target_signal))
+		loss = F.softmax_cross_entropy(raw_network_output, target_signal)
 		return loss
 
-	def backprop(self, loss):
-		self.zero_grads()
-		loss.backward()
-		self.update()
-
-	def save(self, dir="./"):
+	def save(self, model_dir="./"):
 		try:
-			os.mkdir(dir)
+			os.mkdir(model_dir)
 		except:
 			pass
-		for i, layer in enumerate(self.causal_conv_layers):
-			filename = dir + "/causal_conv_layer_{}.hdf5".format(i)
-			serializers.save_hdf5(filename, layer)
+		serializers.save_hdf5(model_dir + "/wavenet.model", self.chain)
+		serializers.save_hdf5(model_dir + "/wavenet.opt", self.optimizer)
 
-		for i, block in enumerate(self.residual_blocks):
-			for j, layer in enumerate(block):
-				filename = dir + "/residual_{}_conv_layer_{}.hdf5".format(i, j)
-				serializers.save_hdf5(filename, layer)
-
-		for i, layer in enumerate(self.softmax_conv_layers):
-			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)
-			serializers.save_hdf5(filename, layer)
-			
-
-	def load(self, dir="./"):
-		def load_hdf5(filename, layer):
-			if os.path.isfile(filename):
-				print "loading", filename
-				serializers.load_hdf5(filename, layer)
-			
-		for i, layer in enumerate(self.causal_conv_layers):
-			filename = dir + "/causal_conv_layer_{}.hdf5".format(i)
-			load_hdf5(filename, layer)
-			
-		for i, block in enumerate(self.residual_blocks):
-			for j, layer in enumerate(block):
-				filename = dir + "/residual_{}_conv_layer_{}.hdf5".format(i, j)
-				load_hdf5(filename, layer)
-			
-		for i, layer in enumerate(self.softmax_conv_layers):
-			filename = dir + "/softmax_conv_layer_{}.hdf5".format(i)
-			load_hdf5(filename, layer)
-
+	def load(self, model_dir="./"):
+		filename = model_dir + "/wavenet.model"
+		if os.path.isfile(filename):
+			print "loading", filename, "..."
+			serializers.load_hdf5(filename, self.chain)
+		else:
+			pass
+		filename = model_dir + "/wavenet.opt"
+		if os.path.isfile(filename):
+			print "loading", filename, "..."
+			serializers.load_hdf5(filename, self.optimizer)
+		else:
+			pass
