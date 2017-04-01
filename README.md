@@ -27,7 +27,13 @@ Add all .wav files to `/train_audio/wav`
 
 ### Training
 
-`python train.py --w wav --lr 0.0001`
+`python train.py -w wav --lr 0.001`
+
+We recommend to stop training if the error saturates and lower the learning rate and start training again.
+
+e.g.
+
+0.001 -> 0.0005 -> 0.00025 -> 0.00001
 
 ### Generating audio
 
