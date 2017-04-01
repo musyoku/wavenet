@@ -37,7 +37,7 @@ else:
 	params.softmax_conv_no_bias = False
 	params.softmax_conv_channels = [256, 256]
 
-	params.optimizer = "eve"
+	params.optimizer = "adam"
 	params.momentum = 0.9
 	params.weight_decay = 0
 	params.gradient_clipping = 1.0
