@@ -450,12 +450,8 @@ class WaveNet():
 		# softmax block
 		self.softmax_conv_layers = []
 		nobias = params.softmax_conv_no_bias
-
-		# channels = [(params.causal_conv_channels[-1], params.softmax_conv_channels[0])]
 		channels = zip(params.softmax_conv_channels[:-1], params.softmax_conv_channels[1:])
-
 		for i, (n_in, n_out) in enumerate(channels):
-			# initial_w = np.random.normal(scale=math.sqrt(2.0 / n_out), size=(n_out, n_in, 1, 1))
 			self.softmax_conv_layers.append(L.Convolution2D(n_in, n_out, ksize=1, stride=1, pad=0, nobias=nobias, wscale=math.sqrt(2.0 / n_out)))
 
 	def setup_optimizer(self):
@@ -598,7 +594,7 @@ class WaveNet():
 
 	# raw_network_output.ndim:	(batchsize, channels, 1, time_step)
 	# target_signal_data.ndim:	(batchsize, time_step)
-	def cross_entropy(self, raw_network_output, target_signal_data):
+	def compute_cross_entropy(self, raw_network_output, target_signal_data):
 		if isinstance(target_signal_data, Variable):
 			raise Exception("target_signal_data cannot be Variable")
 

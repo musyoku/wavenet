@@ -35,6 +35,8 @@ e.g.
 
 0.001 -> 0.0005 -> 0.00025 -> 0.00001
 
+学習率の調整はわりとシビアです。
+
 ### Generating audio
 
 `python generate.py -s 5 --fast`
