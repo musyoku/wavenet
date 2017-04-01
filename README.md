@@ -37,6 +37,8 @@ e.g.
 
 学習率の調整はわりとシビアです。
 
+放置しておく場合は0.00001以下の値に設定します。
+
 ### Generating audio
 
 `python generate.py -s 5 --fast`

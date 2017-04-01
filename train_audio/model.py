@@ -31,13 +31,13 @@ else:
 	params.residual_conv_dilation_no_bias = True
 	params.residual_conv_projection_no_bias = True
 	params.residual_conv_filter_width = 2
-	params.residual_conv_channels = [128, 128, 128, 128, 128, 128, 128, 128]
+	params.residual_conv_channels = [128, 128, 128, 128, 128, 128, 128, 128, 128]
 	params.residual_num_blocks = 1
 
 	params.softmax_conv_no_bias = False
 	params.softmax_conv_channels = [256, 256]
 
-	params.optimizer = "adam"
+	params.optimizer = "eve"
 	params.momentum = 0.9
 	params.weight_decay = 0
 	params.gradient_clipping = 1.0

@@ -472,7 +472,7 @@ class WaveNet():
 			self.chain.add_link("softmax_{}".format(i), link)
 
 		# setup optimizer
-		opt = get_optimizer(params.optimizer, 0.0001, params.momentum)
+		opt = get_optimizer(params.optimizer, 0.00001, params.momentum)
 		opt.setup(self.chain)
 		if params.weight_decay > 0:
 			opt.add_hook(chainer.optimizer.WeightDecay(params.weight_decay))
