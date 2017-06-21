@@ -262,12 +262,12 @@ class CausalSlice1d(function.Function):
 
 class DilatedConvolution1D(L.Convolution2D):
 
-	def __init__(self, in_channels, out_channels, ksize, filter_width=2, dilation=1, stride=1, nobias=False, wscale=1):
+	def __init__(self, in_channels, out_channels, ksize, filter_width=2, dilation=1, stride=1, nobias=False):
 		self.in_channels = in_channels
 		self.out_channels = out_channels
 		self.filter_width = filter_width
 		self.dilation = dilation
-		super(DilatedConvolution1D, self).__init__(in_channels, out_channels, ksize=ksize, stride=stride, wscale=wscale, nobias=nobias)
+		super(DilatedConvolution1D, self).__init__(in_channels, out_channels, ksize=ksize, stride=stride, nobias=nobias)
 
 	# [1, 2, 3, 4] -> [0, 0, 0, 1, 2, 3, 4]
 	def padding_1d(self, x, pad):
@@ -389,11 +389,10 @@ class WaveNet():
 		channels += zip(params.causal_conv_channels[:-1], params.causal_conv_channels[1:])
 
 		for layer_index, (n_in, n_out) in enumerate(channels):
-			std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
 			layer = DilatedConvolution1D(n_in, n_out, ksize, 
 					filter_width=filter_width,
 					dilation=1,
-					nobias=nobias, wscale=std)
+					nobias=nobias)
 			self.causal_conv_layers.append(layer)
 
 		# stack residual blocks
@@ -424,24 +423,21 @@ class WaveNet():
 					ksize = (filter_width, 1)
 					shape_w = (n_out, n_in, filter_width, 1)
 
-				std = math.sqrt(2.0 / (filter_width * filter_width * n_in))
-
 				# filter
 				residual_layer.wf = DilatedConvolution1D(n_in, n_out, ksize, 
 					filter_width=filter_width,
 					dilation=filter_width ** layer_index,
-					nobias=nobias_dilation, wscale=std)
+					nobias=nobias_dilation)
 
 				# gate
 				residual_layer.wg = DilatedConvolution1D(n_in, n_out, ksize, 
 					filter_width=filter_width,
 					dilation=filter_width ** layer_index,
-					nobias=nobias_dilation, wscale=std)
+					nobias=nobias_dilation)
 
 				# projection
-				std = math.sqrt(2.0 / (filter_width * filter_width * n_out))
-				residual_layer.projection_block = L.Convolution2D(n_out, n_in, 1, stride=1, pad=0, nobias=nobias_projection, wscale=std)
-				residual_layer.projection_softmax = L.Convolution2D(n_out, n_softmax_in, 1, stride=1, pad=0, nobias=nobias_projection, wscale=std)
+				residual_layer.projection_block = L.Convolution2D(n_out, n_in, 1, stride=1, pad=0, nobias=nobias_projection)
+				residual_layer.projection_softmax = L.Convolution2D(n_out, n_softmax_in, 1, stride=1, pad=0, nobias=nobias_projection)
 
 				# residual conv block
 				residual_conv_layers.append(residual_layer)
@@ -450,9 +446,13 @@ class WaveNet():
 		# softmax block
 		self.softmax_conv_layers = []
 		nobias = params.softmax_conv_no_bias
+
+		# channels = [(params.causal_conv_channels[-1], params.softmax_conv_channels[0])]
 		channels = zip(params.softmax_conv_channels[:-1], params.softmax_conv_channels[1:])
+
 		for i, (n_in, n_out) in enumerate(channels):
-			self.softmax_conv_layers.append(L.Convolution2D(n_in, n_out, ksize=1, stride=1, pad=0, nobias=nobias, wscale=math.sqrt(2.0 / n_out)))
+			# initial_w = np.random.normal(scale=math.sqrt(2.0 / n_out), size=(n_out, n_in, 1, 1))
+			self.softmax_conv_layers.append(L.Convolution2D(n_in, n_out, ksize=1, stride=1, pad=0, nobias=nobias))
 
 	def setup_optimizer(self):
 		params = self.params
@@ -472,7 +472,7 @@ class WaveNet():
 			self.chain.add_link("softmax_{}".format(i), link)
 
 		# setup optimizer
-		opt = get_optimizer(params.optimizer, 0.00001, params.momentum)
+		opt = get_optimizer(params.optimizer, 0.0001, params.momentum)
 		opt.setup(self.chain)
 		if params.weight_decay > 0:
 			opt.add_hook(chainer.optimizer.WeightDecay(params.weight_decay))
@@ -594,7 +594,7 @@ class WaveNet():
 
 	# raw_network_output.ndim:	(batchsize, channels, 1, time_step)
 	# target_signal_data.ndim:	(batchsize, time_step)
-	def compute_cross_entropy(self, raw_network_output, target_signal_data):
+	def cross_entropy(self, raw_network_output, target_signal_data):
 		if isinstance(target_signal_data, Variable):
 			raise Exception("target_signal_data cannot be Variable")
 
